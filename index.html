@@ -93,9 +93,6 @@ const HAND = {
 };
 
 // ---------- 30라운드: 난이도별 구간 조합 생성기 ----------
-const NAMES = ["주사위 초원","고무나무 숲","시골 국도","안개 낀 아침","해바라기 언덕","냇가 질주","종이비행기 하늘","등대 마을","사막 횡단","네온 시티",
-  "얼음 동굴","눈보라 언덕","지하 광산","톱니바퀴 공장","심해 터널","번개 폭풍","화산 능선","유령의 다리","크리스탈 숲","용암 동굴",
-  "무중력 정거장","로봇 도시","태풍의 눈","지옥 고속도로","은하 철도","블랙홀 가장자리","시간의 미로","폭주 서킷","최후의 관문","별빛 협곡"];
 
 function mulberry(seed) {
   let a = seed >>> 0;
@@ -232,7 +229,7 @@ function genLevel(r, seed) {
     return cx + Math.ceil(3 * s);
   };
 
-  const lv = makeLevel({ name: NAMES[r - 1], hue: (r * 47 + 20) % 360, speed: s, end: 0 }, a => {
+  const lv = makeLevel({ name: "", hue: 0, speed: s, end: 0 }, a => {
     // 특수 구간을 스테이지 전체에 고르게 배치 (연속으로 같은 종류는 피함)
     const allowed = ["fly"]; if (r >= 6) allowed.push("flip"); if (r >= 9) allowed.push("zone");
     const nSp = r < 3 ? 1 : 2 + Math.floor(r / 8);
@@ -260,11 +257,230 @@ function genLevel(r, seed) {
   return lv;
 }
 
+// ---------- 배경 테마: 우리 주변에서 볼 수 있는 장소들 (전부 코드로 그린 오리지널 그림) ----------
+const hs = k => { const t = Math.sin(k * 127.1 + 311.7) * 43758.5453; return t - Math.floor(t); };   // 결정적 난수
+const fr = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+const fc = (x, y, r, c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); };
+const ft = (x1, y1, x2, y2, x3, y3, c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.closePath(); ctx.fill(); };
+const ln = (x1, y1, x2, y2, c, w = 2) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+function rep(off, period, fn) {   // 화면 폭만큼 일정 간격으로 반복 배치 (시차 스크롤)
+  const k0 = Math.floor(off / period) - 1;
+  for (let k = k0; k * period - off < W + period; k++) fn(k * period - off, k);
+}
+const m3 = k => ((k % 3) + 3) % 3, m2 = k => ((k % 2) + 2) % 2;
+const tree = (x, gy, h, leaf, trunk = "#6b4a2a") => {
+  fr(x - 4, gy - h * 0.45, 8, h * 0.45, trunk);
+  fc(x, gy - h * 0.62, h * 0.34, leaf); fc(x - h * 0.2, gy - h * 0.48, h * 0.24, leaf); fc(x + h * 0.2, gy - h * 0.48, h * 0.24, leaf);
+};
+const pine = (x, gy, h, c) => {
+  fr(x - 3, gy - h * 0.15, 6, h * 0.15, "#5a3a20");
+  for (let i = 0; i < 3; i++) ft(x - h * 0.28 + i * 4, gy - h * 0.15 - i * h * 0.25, x, gy - h * 0.15 - i * h * 0.25 - h * 0.4, x + h * 0.28 - i * 4, gy - h * 0.15 - i * h * 0.25, c);
+};
+const house = (x, gy, w, h, wall, roof) => {
+  fr(x, gy - h, w, h, wall); ft(x - 6, gy - h, x + w / 2, gy - h - w * 0.4, x + w + 6, gy - h, roof);
+  fr(x + w * 0.42, gy - h * 0.5, w * 0.16, h * 0.5, "#6b4a2a"); fr(x + w * 0.12, gy - h * 0.7, w * 0.2, w * 0.2, "#bfe6ff"); fr(x + w * 0.68, gy - h * 0.7, w * 0.2, w * 0.2, "#bfe6ff");
+};
+const windows = (x, y, w, h, cols, rows, c, lit) => {   // lit 을 주면 일부 창문만 불이 켜진 모양
+  const cw = w / (cols * 2 + 1), rh = h / (rows * 2 + 1);
+  for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) { if (lit && hs(lit + i * 7 + j * 13) < 0.5) continue; fr(x + cw * (1 + 2 * i), y + rh * (1 + 2 * j), cw, rh, c); }
+};
+
+const THEMES = [
+  { name: "놀이터", hue: 38, pal: { ground: "#8a5a2b", top: "#f2c14e", block: "#3b3f6b", edge: "#ffd166" },
+    far(gy, cam) {
+      rep(cam * 0.2, 250, (x, k) => { const h = 130 + hs(k) * 90; fr(x, gy - h, 90, h, "#9fb3d9"); windows(x, gy - h, 90, h, 3, Math.floor(h / 28), "#e8f1ff"); });
+      rep(cam * 0.32, 170, (x, k) => tree(x + 40, gy, 80 + hs(k + 9) * 40, "#5fae55"));
+    },
+    mid(gy, cam) {
+      rep(cam * 0.55, 520, (x, k) => {
+        const t = m3(k);
+        if (t === 0) {   // 그네
+          const c = "#d64545";
+          ln(x, gy, x + 22, gy - 110, c, 6); ln(x + 44, gy, x + 22, gy - 110, c, 6); ln(x + 130, gy, x + 152, gy - 110, c, 6); ln(x + 174, gy, x + 152, gy - 110, c, 6); ln(x + 22, gy - 110, x + 152, gy - 110, c, 8);
+          for (let i = 0; i < 2; i++) {
+            const a = Math.sin(tAnim * 2 + i * 1.3 + k) * 0.35, px = x + 65 + i * 44, sx = px + Math.sin(a) * 78, sy = gy - 110 + Math.cos(a) * 78;
+            ln(px - 6, gy - 110, sx - 6, sy, "#444", 2); ln(px + 6, gy - 110, sx + 6, sy, "#444", 2); fr(sx - 12, sy, 24, 6, "#3a86ff");
+          }
+        } else if (t === 1) {   // 미끄럼틀
+          fr(x, gy - 96, 8, 96, "#ff6b6b"); fr(x + 30, gy - 96, 8, 96, "#ff6b6b");
+          for (let i = 1; i < 5; i++) fr(x, gy - i * 20, 38, 4, "#ff9f43");
+          fr(x - 4, gy - 104, 46, 10, "#ff6b6b");
+          ctx.fillStyle = "#ffd166"; ctx.beginPath(); ctx.moveTo(x + 38, gy - 96); ctx.lineTo(x + 130, gy - 8); ctx.lineTo(x + 130, gy); ctx.lineTo(x + 112, gy); ctx.lineTo(x + 38, gy - 78); ctx.closePath(); ctx.fill();
+        } else {   // 시소
+          ft(x + 44, gy, x + 60, gy - 26, x + 76, gy, "#555");
+          ctx.save(); ctx.translate(x + 60, gy - 26); ctx.rotate(Math.sin(tAnim * 1.5 + k) * 0.16);
+          fr(-64, -4, 128, 8, "#4ecdc4"); fr(-64, -14, 8, 10, "#2a9d8f"); fr(56, -14, 8, 10, "#2a9d8f"); ctx.restore();
+        }
+      });
+    },
+  },
+  { name: "학교 운동장", hue: 205, pal: { ground: "#7a4a34", top: "#f1e3cf", block: "#2e3f5c", edge: "#8fd0ff" },
+    far(gy, cam) {
+      rep(cam * 0.15, 720, (x) => {
+        fr(x, gy - 150, 440, 150, "#dcb58b"); windows(x + 10, gy - 140, 420, 96, 9, 2, "#9fd8ff");
+        fr(x + 180, gy - 235, 80, 90, "#c99a6b"); fc(x + 220, gy - 200, 22, "#fff"); ln(x + 220, gy - 200, x + 220, gy - 214, "#333", 2); ln(x + 220, gy - 200, x + 230, gy - 196, "#333", 2);
+        ft(x + 172, gy - 235, x + 220, gy - 275, x + 268, gy - 235, "#a0522d"); fr(x + 200, gy - 42, 40, 42, "#6b4a2a");
+      });
+    },
+    mid(gy, cam) {
+      rep(cam * 0.55, 360, (x, k) => {
+        for (let i = 0; i < 7; i++) fr(x + i * 14, gy - 44, 6, 44, "#8a93a3");
+        fr(x, gy - 36, 92, 5, "#8a93a3"); fr(x, gy - 16, 92, 5, "#8a93a3");
+        if (m3(k) === 1) { fr(x + 180, gy - 190, 5, 190, "#c0c4cc"); const w = Math.sin(tAnim * 3 + k) * 4; ft(x + 185, gy - 190, x + 228, gy - 178 + w, x + 185, gy - 164, "#e63946"); }
+        if (m3(k) === 2) { ln(x + 170, gy, x + 170, gy - 70, "#fff", 4); ln(x + 250, gy, x + 250, gy - 70, "#fff", 4); ln(x + 170, gy - 70, x + 250, gy - 70, "#fff", 4); for (let i = 0; i < 8; i++) ln(x + 170 + i * 11, gy - 70, x + 170 + i * 11, gy, "rgba(255,255,255,0.45)", 1); }
+      });
+    },
+    after(gy, cam, tod) { if (tod === 2) rep(cam * 0.15, 720, (x) => windows(x + 10, gy - 140, 420, 96, 9, 2, "#ffe27a", 5)); },
+  },
+  { name: "공원", hue: 120, pal: { ground: "#2f5d2f", top: "#8fe06b", block: "#3a2f1f", edge: "#e6c07b" },
+    far(gy, cam) {
+      rep(cam * 0.1, 420, (x, k) => fc(x + 210, gy + 90, 230 + hs(k) * 60, "#8ccf78"));
+      rep(cam * 0.25, 140, (x, k) => tree(x + 30, gy, 90 + hs(k + 4) * 40, "#4c9a59"));
+    },
+    mid(gy, cam) {
+      rep(cam * 0.55, 340, (x, k) => {
+        const t = m3(k);
+        if (t === 0) { fr(x, gy - 26, 64, 6, "#8b5a2b"); fr(x, gy - 44, 64, 6, "#8b5a2b"); fr(x + 4, gy - 26, 6, 26, "#5b3a1a"); fr(x + 54, gy - 26, 6, 26, "#5b3a1a"); fr(x, gy - 44, 5, 20, "#5b3a1a"); }
+        else if (t === 1) { fr(x, gy - 120, 5, 120, "#3a3a3a"); fc(x + 2, gy - 126, 11, "#ffe9a6"); }
+        else tree(x + 30, gy, 150, "#3f9b4a");
+        for (let i = 0; i < 4; i++) fc(x + 90 + i * 22, gy - 4, 3, ["#ff6b9d", "#ffd166", "#fff", "#c77dff"][i]);
+      });
+    },
+    after(gy, cam, tod) { if (tod === 2) rep(cam * 0.55, 340, (x, k) => { if (m3(k) === 1) { ctx.globalAlpha = 0.3; fc(x + 2, gy - 126, 46, "#ffe9a6"); ctx.globalAlpha = 1; fc(x + 2, gy - 126, 11, "#fff6c9"); } }); },
+  },
+  { name: "동네 골목", hue: 15, pal: { ground: "#3a3d46", top: "#d9d9d9", block: "#4a3040", edge: "#ff9f9f" },
+    far(gy, cam) {
+      const walls = ["#f6d5a5", "#c7e0f4", "#f4c7c7", "#d5e8c3"], roofs = ["#b5543c", "#4a6fa5", "#7b5e57"];
+      rep(cam * 0.2, 330, (x, k) => house(x, gy, 110 + hs(k) * 30, 90 + hs(k + 3) * 40, walls[((k % 4) + 4) % 4], roofs[m3(k)]));
+    },
+    mid(gy, cam) {
+      rep(cam * 0.55, 300, (x) => {
+        fr(x, gy - 170, 6, 170, "#5b4636"); fr(x - 22, gy - 158, 50, 5, "#5b4636");
+        ctx.strokeStyle = "#333"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x + 3, gy - 156); ctx.quadraticCurveTo(x + 153, gy - 128, x + 303, gy - 156); ctx.stroke();
+      });
+      rep(cam * 0.55, 900, (x, k) => {
+        const c = ["#e63946", "#457b9d", "#f4a261", "#2a9d8f"][((k % 4) + 4) % 4];
+        fr(x + 100, gy - 26, 92, 20, c); fr(x + 118, gy - 44, 54, 20, c); fr(x + 124, gy - 40, 18, 12, "#cfe8ff"); fr(x + 148, gy - 40, 18, 12, "#cfe8ff"); fc(x + 120, gy - 6, 9, "#222"); fc(x + 172, gy - 6, 9, "#222");
+      });
+    },
+    after(gy, cam, tod) {
+      if (tod !== 2) return;
+      rep(cam * 0.55, 300, (x) => { ctx.globalAlpha = 0.28; fc(x + 3, gy - 158, 40, "#ffe08a"); ctx.globalAlpha = 1; });
+      rep(cam * 0.2, 330, (x, k) => { const w = 110 + hs(k) * 30, h = 90 + hs(k + 3) * 40; fr(x + w * 0.12, gy - h * 0.7, w * 0.2, w * 0.2, "#ffe27a"); fr(x + w * 0.68, gy - h * 0.7, w * 0.2, w * 0.2, "#ffe27a"); });
+    },
+  },
+  { name: "아파트 단지", hue: 215, pal: { ground: "#40424d", top: "#c9ccd6", block: "#2b3550", edge: "#7ab8ff" },
+    far(gy, cam) {
+      rep(cam * 0.15, 260, (x, k) => { const h = 200 + hs(k) * 160; fr(x, gy - h, 120, h, ["#8e9aaf", "#a4b0c4", "#7a869c"][m3(k)]); windows(x, gy - h, 120, h, 4, Math.floor(h / 26), "#dbe7ff"); });
+    },
+    mid(gy, cam) {
+      rep(cam * 0.5, 250, (x, k) => {
+        tree(x + 30, gy, 70 + hs(k) * 30, "#4c9a59");
+        if (m2(k)) { fr(x + 120, gy - 100, 4, 100, "#555"); fc(x + 122, gy - 104, 8, "#fff2b0"); }
+        fr(x + 170, gy - 16, 40, 5, "#888"); fc(x + 178, gy - 8, 8, "#333"); fc(x + 204, gy - 8, 8, "#333");
+      });
+    },
+    after(gy, cam, tod) { if (tod === 2) rep(cam * 0.15, 260, (x, k) => { const h = 200 + hs(k) * 160; windows(x, gy - h, 120, h, 4, Math.floor(h / 26), "#ffe27a", k * 3 + 1); }); },
+  },
+  { name: "바닷가", hue: 190, sky: ["#5ec2ff", "#dff6ff"], pal: { ground: "#c9a45c", top: "#f5e0a0", block: "#1e4d6b", edge: "#7fe0ff" },
+    far(gy, cam) {
+      fr(0, gy - 150, W, 150, "#3fa9e0"); fr(0, gy - 150, W, 6, "#8fd8ff");
+      rep(cam * 0.15, 70, (x, k) => { const y = gy - 120 + m3(k) * 24; ln(x, y, x + 34, y, "rgba(255,255,255,0.55)", 2); });
+      rep(cam * 0.1, 700, (x) => { ft(x, gy - 152, x, gy - 196, x + 38, gy - 152, "#fff"); fr(x - 6, gy - 152, 52, 6, "#c0392b"); });
+    },
+    mid(gy, cam) {
+      rep(cam * 0.55, 400, (x, k) => {
+        ln(x, gy, x + 12, gy - 130, "#8b5a2b", 9);
+        for (let i = 0; i < 6; i++) { const a = -Math.PI * 0.95 + i * Math.PI * 0.38; ln(x + 12, gy - 130, x + 12 + Math.cos(a) * 64, gy - 130 + Math.sin(a) * 24 + 16, "#2e9e4f", 8); }
+        fr(x + 200, gy - 72, 3, 72, "#eee"); ctx.fillStyle = m2(k) ? "#ff6b6b" : "#ffd166"; ctx.beginPath(); ctx.arc(x + 201, gy - 72, 46, Math.PI, 0); ctx.fill();
+        fc(x + 300, gy - 8, 12, "#e9c46a");
+      });
+    },
+  },
+  { name: "캠핑장", hue: 150, pal: { ground: "#2c4a2c", top: "#79c26a", block: "#4a3320", edge: "#ffb347" },
+    far(gy, cam) {
+      rep(cam * 0.1, 420, (x, k) => ft(x, gy, x + 210, gy - 190 - hs(k) * 80, x + 420, gy, "#6b7fa3"));
+      rep(cam * 0.25, 90, (x, k) => pine(x, gy, 110 + hs(k) * 60, "#2f6f4a"));
+    },
+    mid(gy, cam) {
+      rep(cam * 0.55, 500, (x, k) => {
+        ft(x, gy, x + 50, gy - 72, x + 100, gy, ["#e76f51", "#f4a261", "#2a9d8f"][m3(k)]); ft(x + 38, gy, x + 50, gy - 34, x + 62, gy, "#222");
+        pine(x + 200, gy, 120, "#2a6b45");
+        const fx = x + 330, f = Math.sin(tAnim * 12 + k) * 4;   // 모닥불
+        ln(fx - 16, gy - 4, fx + 16, gy - 10, "#5a3a20", 6); ln(fx + 16, gy - 4, fx - 16, gy - 10, "#5a3a20", 6);
+        ft(fx - 10, gy - 8, fx + f, gy - 42, fx + 10, gy - 8, "#ff9f1c"); ft(fx - 5, gy - 8, fx + f * 0.5, gy - 28, fx + 5, gy - 8, "#ffe066");
+        ctx.globalAlpha = 0.2; fc(fx, gy - 16, 60, "#ff9f1c"); ctx.globalAlpha = 1;
+      });
+    },
+  },
+  { name: "놀이공원", hue: 320, pal: { ground: "#5a2d6b", top: "#ff7ad9", block: "#2d2b6b", edge: "#ffe066" },
+    far(gy, cam) {
+      rep(cam * 0.15, 800, (x) => {   // 관람차
+        const cx = x + 130, cy = gy - 190, r = 110;
+        ctx.strokeStyle = "#c9c9e8"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke();
+        for (let i = 0; i < 12; i++) { const a = tAnim * 0.3 + i * Math.PI / 6; ln(cx, cy, cx + Math.cos(a) * r, cy + Math.sin(a) * r, "#c9c9e8", 2); fc(cx + Math.cos(a) * r, cy + Math.sin(a) * r + 6, 9, ["#ff6b6b", "#ffd166", "#4ecdc4", "#c77dff"][i % 4]); }
+        ln(cx, cy, cx - 64, gy, "#c9c9e8", 5); ln(cx, cy, cx + 64, gy, "#c9c9e8", 5);
+      });
+      ctx.strokeStyle = "#e8a0d8"; ctx.lineWidth = 5; ctx.beginPath();   // 롤러코스터 레일
+      for (let sx = 0; sx <= W; sx += 10) { const y = gy - 110 - Math.sin((sx + cam * 0.25) / 70) * 55; if (sx === 0) ctx.moveTo(sx, y); else ctx.lineTo(sx, y); }
+      ctx.stroke();
+    },
+    mid(gy, cam) {
+      rep(cam * 0.5, 220, (x, k) => { const by = gy - 140 + Math.sin(tAnim * 1.5 + k) * 7; ln(x + 20, by + 16, x + 20, gy - 30, "#ddd", 1.5); fc(x + 20, by, 16, ["#ff6b6b", "#ffd166", "#4ecdc4", "#c77dff", "#4dabf7"][((k % 5) + 5) % 5]); });
+      rep(cam * 0.5, 560, (x) => { ft(x, gy - 64, x + 55, gy - 118, x + 110, gy - 64, "#ff6b9d"); fr(x + 8, gy - 64, 94, 64, "#ffe0f0"); fr(x + 44, gy - 38, 22, 38, "#ff6b9d"); });
+    },
+    after(gy, cam, tod) { if (tod === 2) rep(cam * 0.5, 560, (x) => { ctx.globalAlpha = 0.35; fc(x + 55, gy - 60, 70, "#ffe066"); ctx.globalAlpha = 1; }); },
+  },
+  { name: "농장", hue: 85, pal: { ground: "#6b4a2a", top: "#9bd05a", block: "#5a3a1f", edge: "#ffd27a" },
+    far(gy, cam) {
+      rep(cam * 0.1, 300, (x, k) => fr(x, gy - 60, 300, 60, m2(k) ? "#b7d968" : "#9ccc55"));
+      rep(cam * 0.15, 900, (x) => {   // 풍차
+        ft(x, gy, x + 22, gy - 150, x + 44, gy, "#eadcb8");
+        const cx = x + 22, cy = gy - 150;
+        for (let i = 0; i < 4; i++) { const a = tAnim * 0.8 + i * Math.PI / 2; ln(cx, cy, cx + Math.cos(a) * 72, cy + Math.sin(a) * 72, "#fff", 6); }
+        fc(cx, cy, 6, "#7a5c3a");
+      });
+    },
+    mid(gy, cam) {
+      rep(cam * 0.5, 760, (x) => { fr(x, gy - 92, 130, 92, "#c0392b"); ft(x - 8, gy - 92, x + 65, gy - 152, x + 138, gy - 92, "#7f1d1d"); fr(x + 48, gy - 52, 34, 52, "#f5e6c8"); ln(x + 48, gy - 52, x + 82, gy, "#7f1d1d", 3); ln(x + 82, gy - 52, x + 48, gy, "#7f1d1d", 3); });
+      rep(cam * 0.5, 300, (x, k) => {
+        for (let i = 0; i < 5; i++) fr(x + i * 22, gy - 40, 5, 40, "#a9784a");
+        fr(x, gy - 32, 100, 5, "#a9784a"); fr(x, gy - 16, 100, 5, "#a9784a");
+        if (m3(k) === 0) { ctx.fillStyle = "#e9c46a"; ctx.beginPath(); ctx.ellipse(x + 160, gy - 16, 36, 28, 0, Math.PI, 0); ctx.fill(); fr(x + 124, gy - 16, 72, 16, "#e9c46a"); }
+      });
+    },
+  },
+  { name: "눈 오는 마을", hue: 200, sky: ["#a9c8e8", "#eef6ff"], pal: { ground: "#dfeaf5", top: "#ffffff", block: "#2b4a6b", edge: "#bfe6ff" },
+    far(gy, cam) {
+      rep(cam * 0.1, 420, (x, k) => { const h = 190 + hs(k) * 70; ft(x, gy, x + 210, gy - h, x + 420, gy, "#c8d8ea"); ft(x + 210 - h * 0.28, gy - h * 0.72, x + 210, gy - h, x + 210 + h * 0.28, gy - h * 0.72, "#fff"); });
+      rep(cam * 0.25, 110, (x, k) => { const h = 100 + hs(k) * 50; pine(x, gy, h, "#3d6b5a"); ft(x - h * 0.14, gy - h * 0.65, x, gy - h * 0.8, x + h * 0.14, gy - h * 0.65, "#fff"); });
+    },
+    mid(gy, cam) {
+      rep(cam * 0.55, 420, (x, k) => {
+        fc(x, gy - 19, 19, "#fff"); fc(x, gy - 50, 14, "#fff"); fc(x, gy - 74, 10, "#fff");
+        ft(x, gy - 76, x + 16, gy - 72, x, gy - 70, "#ff8c42"); fc(x - 3, gy - 78, 1.5, "#222"); fc(x + 3, gy - 78, 1.5, "#222");
+        fr(x - 12, gy - 64, 24, 5, "#e63946"); fc(x, gy - 50, 2, "#222"); fc(x, gy - 42, 2, "#222");
+        if (m2(k)) house(x + 160, gy, 110, 76, "#c9a27e", "#fff");
+      });
+    },
+    after(gy, cam) {   // 내리는 눈
+      for (let i = 0; i < 70; i++) {
+        const sx = ((hs(i) * W + tAnim * (12 + hs(i + 50) * 20) - cam * 0.2) % W + W) % W, sy = (hs(i + 100) * H + tAnim * (50 + hs(i + 150) * 60)) % H;
+        fc(sx, sy, 1.5 + hs(i + 200) * 2, "rgba(255,255,255,0.9)");
+      }
+    },
+  },
+];
+const TOD_PREFIX = ["", "노을 진 ", "한밤의 "];   // 1~10라운드 낮, 11~20 노을, 21~30 밤
+
 // 봇 검증으로 확정한 라운드별 시드 (오프라인 검증: 전 라운드 클리어 가능)
 const SEEDS = [1,1,1,1,1,1,1,1,1,1,2,1,1,5,1,6,1,2,2,1,1,2,4,3,9,4,4,23,5,9];
 const LEVELS = SEEDS.map((sd, i) => {
   const lv = HAND[i + 1] || genLevel(i + 1, sd);
   lv.stars = 1 + Math.min(3, Math.floor(i / 8));
+  lv.theme = i % THEMES.length; lv.tod = Math.floor(i / THEMES.length) % 3;
+  lv.hue = THEMES[lv.theme].hue;
+  lv.name = TOD_PREFIX[lv.tod] + THEMES[lv.theme].name;
   return lv;
 });
 
@@ -568,26 +784,27 @@ function update(dt) {
 }
 
 // ---------- 렌더링 ----------
-function hue() {
-  const prog = state === "menu" ? 0 : P.x / (LV.end * T);
-  return (LV.hue + prog * 60) % 360;
-}
+const pal = () => THEMES[LV.theme || 0].pal;
 
 function drawBackground(cam) {
-  const h = hue();
-  const g = ctx.createLinearGradient(0, 0, 0, GROUND + OY);
-  g.addColorStop(0, `hsl(${h},55%,22%)`);
-  g.addColorStop(1, `hsl(${h + 30},60%,40%)`);
+  const th = THEMES[LV.theme || 0], tod = LV.tod || 0, gy = GROUND + OY;
+  const sky = [th.sky || ["#6ec6ff", "#e6f7ff"], ["#f2709c", "#ffd38a"], ["#0b1030", "#2b3b7c"]][tod];
+  const g = ctx.createLinearGradient(0, 0, 0, gy);
+  g.addColorStop(0, sky[0]); g.addColorStop(1, sky[1]);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  for (let i = 0; i < 14; i++) {
-    const x = ((i * 190 - cam * 0.25) % (14 * 190) + 14 * 190) % (14 * 190) - 200;
-    const y = 80 + (i * 97) % 260 + OY * ((i * 53) % 10) / 10 - OY * 0.2, r = 30 + (i * 53) % 50;
-    ctx.fillStyle = `hsla(${h + 20},60%,70%,0.07)`;
-    ctx.beginPath();
-    if (i % 2) ctx.arc(x, y, r, 0, 7);
-    else { ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); }
-    ctx.fill();
+  // 해 / 노을 / 달과 별
+  if (tod === 0) { ctx.globalAlpha = 0.3; fc(W * 0.8, gy - 330, 52, "#fff3a0"); ctx.globalAlpha = 1; fc(W * 0.8, gy - 330, 34, "#fff3a0"); }
+  else if (tod === 1) { ctx.globalAlpha = 0.35; fc(W * 0.72, gy - 110, 92, "#ffb454"); ctx.globalAlpha = 1; fc(W * 0.72, gy - 110, 60, "#ffb454"); }
+  else {
+    for (let i = 0; i < 60; i++) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(tAnim * 2 + i); fr(hs(i) * W, hs(i + 77) * (gy - 40), 2, 2, "#fff"); }
+    ctx.globalAlpha = 1; fc(W * 0.78, gy - 330, 28, "#f4f1de"); fc(W * 0.78 - 8, gy - 336, 6, "#dcd8c0");
   }
+  if (tod < 2) rep(cam * 0.06, 320, (x, k) => { const y = gy - 400 + hs(k) * 170; ctx.globalAlpha = 0.85; fc(x, y, 26, "#fff"); fc(x + 28, y + 6, 20, "#fff"); fc(x - 26, y + 8, 18, "#fff"); ctx.globalAlpha = 1; });
+  // 땅 아래(구덩이 안)는 어둡게
+  fr(0, gy, W, H - gy, th.pal.ground); fr(0, gy, W, H - gy, "rgba(0,0,0,0.55)");
+  th.far(gy, cam); th.mid(gy, cam);
+  if (tod === 1) fr(0, 0, W, gy, "rgba(255,140,60,0.16)"); else if (tod === 2) fr(0, 0, W, gy, "rgba(10,20,60,0.5)");
+  if (th.after) th.after(gy, cam, tod);   // 야간 조명, 눈 등
 }
 
 function drawGround(cam, noGaps) {
@@ -598,9 +815,9 @@ function drawGround(cam, noGaps) {
   for (const g of gaps) { if (g[0] > cur) segs.push([cur, g[0]]); cur = Math.max(cur, g[1]); }
   if (cur < x1) segs.push([cur, x1]);
   for (const s of segs) {
-    ctx.fillStyle = `hsl(${hue()},40%,12%)`;
+    ctx.fillStyle = pal().ground;
     ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], H - OY - GROUND);
-    ctx.fillStyle = `hsl(${hue() + 20},70%,60%)`;
+    ctx.fillStyle = pal().top;
     ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], 3);
   }
   ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
@@ -608,12 +825,12 @@ function drawGround(cam, noGaps) {
 }
 
 function drawBlock(x, y) {
-  ctx.fillStyle = `hsl(${hue()},45%,18%)`;
+  ctx.fillStyle = pal().block;
   ctx.fillRect(x, y, T, T);
-  ctx.strokeStyle = `hsl(${hue() + 20},80%,65%)`; ctx.lineWidth = 2;
+  ctx.strokeStyle = pal().edge; ctx.lineWidth = 2;
   ctx.strokeRect(x + 1, y + 1, T - 2, T - 2);
-  ctx.fillStyle = `hsla(${hue() + 20},80%,65%,0.18)`;
-  ctx.fillRect(x + 8, y + 8, T - 16, T - 16);
+  ctx.globalAlpha = 0.18; ctx.fillStyle = pal().edge;
+  ctx.fillRect(x + 8, y + 8, T - 16, T - 16); ctx.globalAlpha = 1;
 }
 
 function drawSpike(x, y, down) {
@@ -668,9 +885,9 @@ function drawWorld(cam) {
   for (const r of LV.ceil) {
     const x0 = r[0] * T - cam, x1 = r[1] * T - cam;
     if (x1 < 0 || x0 > W) continue;
-    ctx.fillStyle = `hsl(${hue()},40%,12%)`;
+    ctx.fillStyle = pal().ground;
     ctx.fillRect(x0, -OY, x1 - x0, FLY_TOP + OY);
-    ctx.fillStyle = `hsl(${hue() + 20},70%,60%)`;
+    ctx.fillStyle = pal().top;
     ctx.fillRect(x0, FLY_TOP - 3, x1 - x0, 3);
   }
   drawGround(cam);
