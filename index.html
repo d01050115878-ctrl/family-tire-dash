@@ -288,6 +288,114 @@ const LEVELS = SEEDS.map((sd, i) => {
   return lv;
 });
 
+// ---------- 사운드: WebAudio 로 직접 합성한 오리지널 BGM / 효과음 (외부 음원 없음) ----------
+const Snd = (() => {
+  let ac = null, master = null, musicGain = null, noiseBuf = null, timer = null;
+  let muted = false, running = false, menuMode = false;
+  let step = 0, nextT = 0, bpm = 140, root = 45, progress = 0, lastPad = 0;
+  try { muted = localStorage.getItem("tiredash-mute") === "1"; } catch (e) {}
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  function init() {
+    if (ac) { if (ac.state === "suspended") ac.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    ac = new AC();
+    master = ac.createGain(); master.gain.value = muted ? 0 : 0.55;
+    const comp = ac.createDynamicsCompressor();
+    master.connect(comp); comp.connect(ac.destination);
+    musicGain = ac.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
+    noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    document.addEventListener("visibilitychange", () => { if (!ac) return; if (document.hidden) ac.suspend(); else ac.resume(); });
+  }
+
+  function osc(type, f, t, dur, vol, dest, slideTo) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(t + dur + 0.03);
+  }
+  function noise(t, dur, vol, dest, filterType, freq) {
+    const n = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    n.buffer = noiseBuf; f.type = filterType; f.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(f); f.connect(g); g.connect(dest); n.start(t, Math.random() * 0.5); n.stop(t + dur + 0.03);
+  }
+
+  // 코드 진행: i - VI - III - VII (단조, 긴장감 있는 진행) + 마디별 리드 멜로디
+  const CHORD_ROOT = [0, 8, 3, 10], CHORD_MINOR = [true, false, false, false];
+  const LEAD = [
+    [[0, 2, 3], [3, 1, 3], [6, 2, 2], [10, 0, 2], [12, 1, 4]],
+    [[0, 0, 2], [2, 1, 2], [4, 2, 3], [8, 1, 2], [11, 2, 3]],
+    [[0, 2, 2], [3, 2, 2], [6, 1, 3], [9, 0, 2], [12, 2, 4]],
+    [[0, 1, 2], [2, 2, 2], [4, 1, 2], [6, 0, 2], [8, 1, 2], [10, 2, 2], [12, 2, 4]],
+  ];
+
+  function schedule(st, t) {
+    const sd = 60 / bpm / 4, bar = Math.floor(st / 16) % 4, k = st % 16;
+    const inten = menuMode ? 0 : Math.min(1, progress * 1.4);
+    const rt = root + CHORD_ROOT[bar], tones = (CHORD_MINOR[bar] ? [0, 3, 7] : [0, 4, 7]).map(x => rt + x);
+    // 드럼: 4비트 킥, 백비트 스네어, 하이햇 (진행할수록 촘촘해짐)
+    if (k % 4 === 0) osc("sine", 160, t, 0.16, 0.9, musicGain, 42);
+    if (k === 4 || k === 12) { noise(t, 0.13, 0.5, musicGain, "bandpass", 1900); osc("triangle", 210, t, 0.09, 0.3, musicGain, 120); }
+    if (k % 2 === 0 || inten > 0.5) noise(t, 0.04, k % 4 === 2 ? 0.2 : 0.11, musicGain, "highpass", 7500);
+    if (bar === 3 && k >= 12 && inten > 0.2) noise(t, 0.06, 0.15 + (k - 12) * 0.05, musicGain, "bandpass", 3000);   // 마디 끝 스네어 롤
+    // 베이스: 옥타브를 오가는 추진력 있는 8분음표 (후반엔 16분음표)
+    if (k % 2 === 0 || inten > 0.6) osc("sawtooth", mtof(rt - 24 + (k % 4 === 2 ? 12 : 0)), t, sd * 1.7, 0.2, musicGain);
+    // 아르페지오: 16분음표 (방향이 바뀌며 긴장감을 만듦)
+    if (!menuMode) {
+      const idx = [0, 1, 2, 1, 2, 1, 0, 1][k % 8];
+      osc("square", mtof(tones[idx] + (k % 8 >= 4 ? 24 : 12)), t, sd * 0.9, 0.05 + inten * 0.03, musicGain);
+    }
+    // 리드: 신스 멜로디 (중반 이후 등장)
+    if (inten > 0.25 || menuMode) for (const [ls, ti, len] of LEAD[bar]) if (ls === k) osc("triangle", mtof(tones[ti] + 24), t, sd * len, 0.16, musicGain);
+    if (inten > 0.65 && k % 4 === 0) osc("square", mtof(tones[2] + 36), t, sd * 1.2, 0.04, musicGain);
+  }
+
+  function pump() {
+    if (!ac || !running) return;
+    while (nextT < ac.currentTime + 0.14) { schedule(step, nextT); nextT += 60 / bpm / 4; step++; }
+  }
+  function begin() {
+    if (!ac) return;
+    running = true; step = 0; nextT = ac.currentTime + 0.06;
+    musicGain.gain.cancelScheduledValues(ac.currentTime); musicGain.gain.setValueAtTime(menuMode ? 0.32 : 0.5, ac.currentTime);
+    if (!timer) timer = setInterval(pump, 25);
+  }
+  const sfx = (fn) => { if (!ac || muted) return; fn(ac.currentTime, master); };
+
+  return {
+    init,
+    get muted() { return muted; },
+    toggle() {
+      muted = !muted;
+      try { localStorage.setItem("tiredash-mute", muted ? "1" : "0"); } catch (e) {}
+      if (master) master.gain.setValueAtTime(muted ? 0 : 0.55, ac.currentTime);
+    },
+    setSong(b, r) { bpm = b; root = r; menuMode = false; },
+    restart() { if (ac) begin(); },
+    menu() { if (!ac) return; bpm = 112; root = 45; menuMode = true; begin(); },
+    stopMusic() { running = false; },
+    setProgress(p) { progress = p; },
+    isRunning: () => running,
+    jump()   { sfx((t, d) => { osc("square", 330, t, 0.09, 0.14, d, 620); }); },
+    pad()    { sfx((t, d) => { if (t - lastPad < 0.25) return; lastPad = t; osc("triangle", 380, t, 0.22, 0.25, d, 1500); osc("square", 760, t, 0.12, 0.06, d, 1800); }); },
+    portal() { sfx((t, d) => { osc("sawtooth", 200, t, 0.35, 0.12, d, 900); osc("sine", 1200, t, 0.3, 0.12, d, 400); }); },
+    click()  { sfx((t, d) => { osc("square", 700, t, 0.05, 0.1, d, 900); }); },
+    death()  {
+      sfx((t, d) => { noise(t, 0.35, 0.6, d, "lowpass", 2500); osc("square", 420, t, 0.4, 0.22, d, 45); osc("sawtooth", 120, t, 0.3, 0.2, d, 35); });
+      if (ac) { musicGain.gain.cancelScheduledValues(ac.currentTime); musicGain.gain.setValueAtTime(0.07, ac.currentTime); }   // 죽으면 음악이 잠깐 죽음
+    },
+    win()    {
+      running = false;
+      sfx((t, d) => { [523, 659, 784, 1047, 1319].forEach((f, i) => { osc("square", f, t + i * 0.09, 0.28, 0.16, d); osc("triangle", f / 2, t + i * 0.09, 0.28, 0.14, d); }); });
+    },
+  };
+})();
+
 // ---------- 상태 ----------
 const P = { x: 0, y: GROUND - S, vy: 0, grounded: true, mode: "roll", grav: 1, angle: 0 };
 let LV = LEVELS[0], lvIdx = 0, sel = 0;
@@ -304,17 +412,21 @@ function saveBest(pct) {
 function reset() {
   P.x = 0; P.y = GROUND - S; P.vy = 0; P.grounded = true; P.mode = "roll"; P.grav = 1; P.angle = 0;
   nextPortal = 0; particles = []; state = "play";
+  Snd.restart();
 }
 
+const ROOTS = [45, 47, 48, 50, 52, 43, 41];   // 라운드마다 조성이 달라짐
 function startLevel(i) {
-  lvIdx = i; LV = LEVELS[i]; attempts = 1; reset();
+  lvIdx = i; LV = LEVELS[i]; attempts = 1;
+  Snd.setSong(Math.round(128 + 36 * (LV.speed - 0.9) / 0.4), ROOTS[i % ROOTS.length]);
+  reset();
 }
 
-function goMenu() { state = "menu"; sel = lvIdx; P.x = 0; P.y = GROUND - S; P.mode = "roll"; P.grav = 1; particles = []; }
+function goMenu() { state = "menu"; sel = lvIdx; P.x = 0; P.y = GROUND - S; P.mode = "roll"; P.grav = 1; particles = []; Snd.menu(); }
 
 function die() {
   if (state !== "play") return;
-  state = "dead"; deadTimer = 0.75; shake = 0.25;
+  state = "dead"; deadTimer = 0.75; shake = 0.25; Snd.death();
   saveBest(Math.min(99, Math.floor(P.x / (LV.end * T) * 100)));
   for (let i = 0; i < 26; i++) {
     const a = Math.random() * Math.PI * 2, v = 120 + Math.random() * 380;
@@ -332,8 +444,12 @@ function toCanvas(e) {
   return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
 }
 
+const MUTE_BTN = { x: W - 84, y: 68, w: 64, h: 26 };
 function press(pos) {
+  Snd.init();
+  if (pos && inRect(pos, MUTE_BTN)) { Snd.toggle(); return; }
   if (state === "menu") {
+    if (!Snd.isRunning()) Snd.menu();
     if (pos) { for (let i = 0; i < LEVELS.length; i++) if (inRect(pos, cardRect(i))) { startLevel(i); holding = true; } }
     else { startLevel(sel); holding = true; }
     return;
@@ -350,6 +466,7 @@ addEventListener("keydown", e => {
   else if (state === "menu" && e.code === "ArrowRight") sel = (sel + 1) % LEVELS.length;
   else if (state === "menu" && e.code === "ArrowDown") sel = Math.min(LEVELS.length - 1, sel + COLS);
   else if (state === "menu" && e.code === "ArrowUp") sel = Math.max(0, sel - COLS);
+  else if (e.code === "KeyN") { Snd.init(); Snd.toggle(); }
   else if (e.code === "Escape" || e.code === "KeyM") goMenu();
 });
 addEventListener("keyup", e => { if (["Space", "ArrowUp", "KeyW", "Enter"].includes(e.code)) release(); });
@@ -370,14 +487,15 @@ function step(dt) {
     const pt = LV.portals[nextPortal++];
     if (pt.mode) P.mode = pt.mode;
     if (pt.grav) P.grav = pt.grav;
-    P.vy = 0; P.grounded = false;
+    P.vy = 0; P.grounded = false; Snd.portal();
   }
 
   if (P.mode === "roll") {
-    if (holding && P.grounded) P.vy = -JUMP_V * dir;
+    if (holding && P.grounded) { P.vy = -JUMP_V * dir; Snd.jump(); }
     P.vy += GRAV * dir * dt;
     P.y += P.vy * dt;
-    P.angle += dir * (P.grounded ? spd() / 17 : 5) * dt;
+    if (P.grounded) P.angle += (Math.round(P.angle / (Math.PI / 2)) * (Math.PI / 2) - P.angle) * Math.min(1, 25 * dt);
+    else P.angle += dir * 5.8 * dt;
     P.grounded = false;
     if (dir === 1) {
       if (P.y + S >= GROUND && prevBottom <= GROUND + 2 && !inGap()) { P.y = GROUND - S; P.vy = 0; P.grounded = true; }
@@ -414,13 +532,14 @@ function step(dt) {
   // 패드
   if (P.mode === "roll" && dir === 1) for (const d of LV.pads) {
     const dx = d.x * T, dy = GROUND - d.y * T - 10;
-    if (overlap(P.x, P.y, S, S, dx + 4, dy, T - 8, 10)) { P.vy = -PAD_V; P.grounded = false; }
+    if (overlap(P.x, P.y, S, S, dx + 4, dy, T - 8, 10)) { P.vy = -PAD_V; P.grounded = false; Snd.pad(); }
   }
-  if (P.x > LV.end * T) { state = "win"; saveBest(100); }
+  if (P.x > LV.end * T) { state = "win"; saveBest(100); Snd.win(); }
 }
 
 function update(dt) {
   tAnim += dt;
+  Snd.setProgress(state === "play" || state === "dead" ? Math.min(1, P.x / (LV.end * T)) : 0);
   if (shake > 0) shake -= dt;
   for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 1200 * dt; p.life -= dt; }
   particles = particles.filter(p => p.life > 0);
@@ -495,23 +614,36 @@ function drawSpike(x, y, down) {
   ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 
-const TIRE_SCALE = 1.4;     // 화면에 그려지는 크기 (충돌 판정 S는 그대로라 조금 더 관대함)
-const TIRE_R = 18 * TIRE_SCALE;
-function drawTire(cx, cy, angle, wings) {
-  ctx.save(); ctx.translate(cx, cy); ctx.scale(TIRE_SCALE, TIRE_SCALE);
+const DICE_H = 21;          // 주사위 한 변의 절반 (화면 크기 42px, 충돌 판정 S=30은 그대로라 조금 더 관대함)
+const PIPS = [
+  [[0, 0]],
+  [[-1, -1], [1, 1]],
+  [[-1, -1], [0, 0], [1, 1]],
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+  [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
+  [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]],
+];
+function drawDice(cx, cy, angle, wings) {
+  ctx.save(); ctx.translate(cx, cy);
   if (wings) {
     ctx.fillStyle = "#ffd447"; ctx.strokeStyle = "#7a5c00"; ctx.lineWidth = 2;
-    const flap = Math.sin(tAnim * 18) * 4;
-    ctx.beginPath(); ctx.moveTo(-6, -4); ctx.lineTo(-30, -18 + flap); ctx.lineTo(-24, 2); ctx.lineTo(-6, 6); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const flap = Math.sin(tAnim * 18) * 5;
+    ctx.beginPath(); ctx.moveTo(-10, -6); ctx.lineTo(-40, -24 + flap); ctx.lineTo(-32, 2); ctx.lineTo(-10, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
   ctx.rotate(angle);
-  ctx.fillStyle = "#1b1b1f"; ctx.beginPath(); ctx.arc(0, 0, 18, 0, 7); ctx.fill();
-  ctx.fillStyle = "#3a3a44";
-  for (let i = 0; i < 12; i++) { ctx.save(); ctx.rotate(i * Math.PI / 6); ctx.fillRect(-2.5, -19, 5, 6); ctx.restore(); }
-  ctx.fillStyle = "#b9c0cc"; ctx.beginPath(); ctx.arc(0, 0, 10, 0, 7); ctx.fill();
-  ctx.fillStyle = "#6c7480";
-  for (let i = 0; i < 5; i++) { ctx.save(); ctx.rotate(i * Math.PI * 2 / 5); ctx.beginPath(); ctx.arc(0, -6, 1.8, 0, 7); ctx.fill(); ctx.restore(); }
-  ctx.fillStyle = "#3a3a44"; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 7); ctx.fill();
+  const h = DICE_H, r = 7;
+  ctx.beginPath();
+  ctx.moveTo(-h + r, -h); ctx.lineTo(h - r, -h); ctx.quadraticCurveTo(h, -h, h, -h + r);
+  ctx.lineTo(h, h - r); ctx.quadraticCurveTo(h, h, h - r, h);
+  ctx.lineTo(-h + r, h); ctx.quadraticCurveTo(-h, h, -h, h - r);
+  ctx.lineTo(-h, -h + r); ctx.quadraticCurveTo(-h, -h, -h + r, -h);
+  ctx.closePath();
+  ctx.fillStyle = "#f7f3e8"; ctx.fill();
+  ctx.strokeStyle = "#2a2a33"; ctx.lineWidth = 3; ctx.stroke();
+  // 회전할 때마다 눈이 바뀌는 주사위 (매 90도마다 다음 눈)
+  const face = ((Math.floor(angle / (Math.PI / 2)) % 6) + 6) % 6;
+  ctx.fillStyle = face === 0 ? "#e5384f" : "#2a2a33";
+  for (const [px, py] of PIPS[face]) { ctx.beginPath(); ctx.arc(px * 10, py * 10, face === 0 ? 6 : 3.6, 0, 7); ctx.fill(); }
   ctx.restore();
 }
 
@@ -556,12 +688,12 @@ function draw() {
 
   if (state !== "dead") {
     // 큰 타이어가 바닥/천장 위에 정확히 얹혀 보이도록 위치 보정 (비행 중에는 중앙)
-    const ty = P.mode === "fly" ? P.y + S / 2 : P.grav === 1 ? P.y + S - TIRE_R : P.y + TIRE_R;
-    drawTire(PLAYER_SCREEN_X + S / 2, ty, P.angle, P.mode === "fly");
+    const ty = P.mode === "fly" ? P.y + S / 2 : P.grav === 1 ? P.y + S - DICE_H : P.y + DICE_H;
+    drawDice(PLAYER_SCREEN_X + S / 2, ty, P.angle, P.mode === "fly");
   }
   for (const p of particles) {
     ctx.globalAlpha = Math.max(0, p.life);
-    ctx.fillStyle = "#22222a";
+    ctx.fillStyle = "#f7f3e8";
     ctx.beginPath(); ctx.arc(p.x - cam, p.y, p.r, 0, 7); ctx.fill();
   }
   ctx.globalAlpha = 1;
@@ -579,6 +711,7 @@ function drawHUD() {
   text("최고 " + bests[lvIdx] + "%", W - 20, 58, 16, "#ffd447", "right");
   ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(MENU_BTN.x, MENU_BTN.y, MENU_BTN.w, MENU_BTN.h);
   text("메뉴", MENU_BTN.x + MENU_BTN.w / 2, MENU_BTN.y + 19, 15);
+  drawMute();
 
   if (state === "win") {
     ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
@@ -589,8 +722,14 @@ function drawHUD() {
   }
 }
 
+function drawMute() {
+  ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(MUTE_BTN.x, MUTE_BTN.y, MUTE_BTN.w, MUTE_BTN.h);
+  text(Snd.muted ? "소리 끔" : "소리 켬", MUTE_BTN.x + MUTE_BTN.w / 2, MUTE_BTN.y + 19, 14, Snd.muted ? "#ff8a8a" : "#fff");
+}
+
 function drawMenu() {
   ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
+  drawMute();
   text("타이어 대시", W / 2, 66, 50, "#ffd447");
   text("라운드를 골라 시작하세요 (총 " + LEVELS.length + "라운드)", W / 2, 100, 18, "#cfd6ff");
   LEVELS.forEach((lv, i) => {
@@ -605,7 +744,7 @@ function drawMenu() {
   });
   const cur = LEVELS[sel];
   text((sel + 1) + ". " + cur.name + "  —  " + cur.desc, W / 2, 500, 20, "#fff");
-  text("클릭/터치 또는 방향키 + 스페이스 · 게임 중: 누르고 있으면 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전", W / 2, 526, 13, "#cfd6ff");
+  text("클릭/터치 또는 방향키 + 스페이스 · N: 소리 · 게임 중: 누르고 있으면 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전", W / 2, 526, 13, "#cfd6ff");
 }
 
 // ---------- 메인 루프 ----------
