@@ -43,6 +43,7 @@ function makeLevel(meta, build) {
     roll: x => L.portals.push({ x, mode: "roll", color: "#8dff6a" }),
     flip: x => L.portals.push({ x, grav: -1, color: "#ff5ce1" }),
     norm: x => L.portals.push({ x, grav: 1, color: "#ffa64d" }),
+    speed: (x, m) => L.portals.push({ x, speed: m, color: m > 1 ? "#ff5a4d" : m < 1 ? "#7aa8ff" : "#d8d8d8" }),   // 속도 포털
     setEnd: v => { L.end = v; },
   };
   build(api);
@@ -57,6 +58,10 @@ function makeLevel(meta, build) {
     if (!on && start !== null) { L.ceil.push([start, p.x]); start = null; }
   }
   if (start !== null) L.ceil.push([start, L.end]);
+  // 충돌 검사를 빠르게 하기 위한 타일 x 인덱스
+  L.blocksAt = []; L.spikesAt = [];
+  for (const b of L.blocks) { if (!L.blocksAt[b.x]) L.blocksAt[b.x] = []; L.blocksAt[b.x].push(b); }
+  for (const sp of L.spikes) { if (!L.spikesAt[sp.x]) L.spikesAt[sp.x] = []; L.spikesAt[sp.x].push(sp); }
   return L;
 }
 
@@ -85,92 +90,6 @@ const HAND = {
     a.spike(183); a.spike(184); a.spike(185);
     a.spike(190);
   }),
-
-  // 10라운드: 네온 시티 — 중력 반전
-  10: makeLevel({ name: "네온 시티", desc: "천장을 달리는 구간!", stars: 2, hue: 285, speed: 1.0, end: 208 }, a => {
-    a.spike(14); a.spike(15); a.spike(23);
-    a.column(30, 1); a.column(31, 1); a.column(32, 2); a.column(33, 2);
-    a.spike(38); a.spike(39); a.spike(40);
-    for (let x = 46; x <= 49; x++) a.column(x, 1);
-    a.spike(49, 1);
-    a.pad(56); a.gap(58, 64);
-    a.spike(69); a.spike(70);
-    a.flip(78);
-    a.hangSpike(88); a.hangSpike(89);
-    a.hang(96, 1);
-    a.hangSpike(102); a.hangSpike(103); a.hangSpike(104);
-    a.hang(110, 2);
-    a.hangSpike(117);
-    a.norm(122);
-    a.spike(132); a.spike(133);
-    a.column(139, 2);
-    a.gap(146, 150);
-    a.spike(155); a.spike(156); a.spike(157);
-    a.fly(164);
-    a.column(172, 3); a.column(173, 3);
-    a.hang(180, 3); a.hang(181, 3);
-    a.column(188, 2); a.hang(188, 3);
-    a.hang(196, 4);
-    a.roll(200);
-    a.spike(204);
-  }),
-
-  // 20라운드: 용암 동굴 — 빠른 속도, 좁은 비행 터널
-  20: makeLevel({ name: "용암 동굴", desc: "빠르고 좁은 통로", stars: 3, hue: 12, speed: 1.15, end: 196 }, a => {
-    a.spike(16); a.spike(17); a.spike(25);
-    a.spike(32); a.spike(33); a.spike(34);
-    a.column(42, 2);
-    a.gap(48, 52);
-    a.spike(57);
-    a.spike(63); a.spike(64);
-    a.pad(69); a.gap(71, 78);
-    a.spike(84); a.spike(85);
-    a.fly(92);
-    a.column(100, 2); a.hang(100, 3);
-    a.hang(110, 4);
-    a.column(118, 4); a.column(119, 4);
-    a.column(128, 3); a.hang(128, 2);
-    a.spike(134); a.spike(135);
-    a.hangSpike(140);
-    a.hang(146, 3); a.column(146, 2);
-    a.roll(154);
-    a.spike(160); a.spike(161);
-    a.column(167, 1); a.column(168, 1); a.column(169, 1); a.spike(169, 1);
-    a.gap(174, 178);
-    a.spike(183); a.spike(184); a.spike(185);
-    a.column(190, 2);
-  }),
-
-  // 30라운드: 별빛 협곡 — 최종 보스 맵
-  30: makeLevel({ name: "별빛 협곡", desc: "최종 도전: 모든 기믹!", stars: 4, hue: 170, speed: 1.25, end: 232 }, a => {
-    a.spike(14); a.spike(15); a.spike(16);
-    a.column(24, 1); a.column(25, 2); a.column(26, 3);
-    a.spike(32);
-    a.flip(38);
-    a.hang(46, 1);
-    a.hangSpike(52); a.hangSpike(53);
-    a.hang(60, 2);
-    a.hangSpike(67); a.hangSpike(68); a.hangSpike(69);
-    a.norm(76);
-    a.spike(86); a.spike(87);
-    a.gap(94, 99);
-    a.pad(104); a.gap(106, 113);
-    a.spike(119);
-    a.fly(126);
-    a.column(134, 3); a.hang(134, 2);
-    a.hang(143, 3); a.hang(144, 3);
-    a.column(152, 4);
-    a.column(160, 2); a.hang(160, 3);
-    a.spike(166); a.hangSpike(170);
-    a.roll(176);
-    a.spike(184);
-    a.flip(192);
-    a.hang(200, 1); a.hang(201, 1); a.hangSpike(201, 1);
-    a.hangSpike(208); a.hangSpike(209);
-    a.hang(216, 2);
-    a.norm(222);
-    a.spike(228);
-  }),
 };
 
 // ---------- 30라운드: 난이도별 구간 조합 생성기 ----------
@@ -190,99 +109,159 @@ function mulberry(seed) {
 
 function genLevel(r, seed) {
   const R = mulberry(seed * 7919 + r * 104729);
-  const pick = arr => arr[Math.floor(R() * arr.length)];
-  const s = Math.round((0.9 + 0.4 * (r - 1) / 29) * 100) / 100;
-  const tier = r <= 8 ? 0 : r <= 18 ? 1 : 2;
-  const target = 150 + r * 3;
-  const fs = Math.max(1, s);
-  const lead = () => Math.ceil(5.5 * s) + (2 - tier) + Math.floor(R() * 3);
+  const rnd = n => Math.floor(R() * n);
+  const pick = arr => arr[rnd(arr.length)];
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const s = Math.round((0.95 + 0.4 * (r - 1) / 29) * 100) / 100;      // 기본 속도 0.95 → 1.35
+  const d = r <= 5 ? 1 : r <= 12 ? 2 : r <= 22 ? 3 : 4;               // 난이도 단계
+  const target = 380 + r * 15;                                        // 길이: 약 400 ~ 830 타일
+  let mul = 1;                                                        // 속도 포털로 바뀐 현재 속도 배율
+  const cs = () => s * mul;
+  const lead = () => Math.max(Math.ceil(4.4 * cs()), Math.ceil(6.6 * cs()) - d) + rnd(3);
+  let prevC = null;                                                   // 비행 구간에서 직전 통로 중심 (행 단위)
+  const used = new Set();
 
+  // ----- 지상 구간 -----
   const ground = (a, x, kind) => {
+    used.add(kind);
     switch (kind) {
       case "spike1": a.spike(x); return x + 1;
       case "spike2": a.spike(x); a.spike(x + 1); return x + 2;
       case "spike3": for (let i = 0; i < 3; i++) a.spike(x + i); return x + 3;
-      case "hurdle": { const h = 1 + (R() < 0.5 ? 1 : 0), w = 1 + (R() < 0.5 ? 1 : 0); for (let i = 0; i < w; i++) a.column(x + i, h); return x + w; }
+      case "spikeGap": a.spike(x); a.spike(x + 2); return x + 3;
+      case "spikeGap3": a.spike(x); a.spike(x + 3); return x + 4;
+      case "hurdle": { const h = 1 + rnd(2), w = 1 + rnd(2); for (let i = 0; i < w; i++) a.column(x + i, h); return x + w; }
       case "stairs2": for (let i = 0; i < 2; i++) { a.column(x + i, 1); a.column(x + 2 + i, 2); } return x + 4;
       case "stairs3": for (let i = 0; i < 2; i++) { a.column(x + i, 1); a.column(x + 2 + i, 2); a.column(x + 4 + i, 3); } return x + 6;
+      case "wave": a.column(x, 1); a.column(x + 1, 2); a.column(x + 2, 2); a.column(x + 3, 1); return x + 4;
       case "chain": for (let i = 0; i < 4; i++) a.column(x + i, 1); a.spike(x + 3, 1); return x + 4;
+      case "chain2": for (let i = 0; i < 8; i++) a.column(x + i, 1); a.spike(x + 3, 1); a.spike(x + 6, 1); return x + 8;
       case "gap3": a.gap(x, x + 3); return x + 3;
       case "gap4": a.gap(x, x + 4); return x + 4;
       case "gap5": a.gap(x, x + 5); return x + 5;
+      case "doublegap": a.gap(x, x + 3); a.gap(x + 6, x + 9); return x + 9;
       case "padgap": a.pad(x); a.gap(x + 2, x + 7); return x + 7;
+      case "padSpikes": a.pad(x); for (let i = 3; i <= 6; i++) a.spike(x + i); return x + 7;
+      case "pillarhop": a.column(x, 2); a.spike(x + 3); a.column(x + 6, 2); return x + 7;
+      case "underbridge": for (let i = 0; i < 5; i++) a.hang(x + i, 4); a.spike(x + 2); return x + 5;
     }
   };
-  const pools = [
-    ["spike1", "spike1", "spike2", "hurdle", "stairs2", "gap3"],
-    ["spike1", "spike2", "spike3", "hurdle", "stairs2", "stairs3", "chain", "gap3", "gap4", "padgap"],
-    ["spike2", "spike3", "spike3", "hurdle", "stairs3", "chain", "chain", "gap4", "gap5", "padgap"],
-  ];
+  const pools = {
+    1: ["spike1", "spike1", "spike2", "spikeGap", "hurdle", "stairs2", "gap3", "gap4", "wave", "chain"],
+    2: ["spike2", "spike3", "spikeGap", "hurdle", "stairs2", "wave", "chain", "gap3", "gap4", "padgap", "underbridge", "pillarhop"],
+    3: ["spike3", "spikeGap", "spikeGap3", "stairs3", "wave", "chain", "chain2", "gap4", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "pillarhop"],
+    4: ["spike3", "spikeGap3", "stairs3", "wave", "chain2", "chain2", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "pillarhop", "pillarhop"],
+  };
+  const simple = ["spike1", "spike2", "spikeGap", "hurdle", "gap3", "gap4", "wave", "stairs2"];
 
+  // ----- 비행 구간: 터널 + 오르내리는 통로 -----
+  const corridor = (a, cx) => {
+    const c = [0, 5, 4, 3, 3][d] + (d >= 3 && R() < 0.4 ? 1 : 0);   // 통로 폭(행)
+    const len = 6 + rnd(5), hi = 8 - c;
+    let b = prevC === null ? rnd(hi + 1) : clamp(Math.round(prevC - c / 2 + (R() - 0.5) * 2), 0, hi);
+    for (let i = 0; i < len; i++) {
+      if (i > 0 && i % 2 === 0 && R() < 0.6) b = clamp(b + (R() < 0.5 ? -1 : 1), 0, hi);
+      const n = 8 - c - b;
+      if (b) a.column(cx + i, b);
+      if (n) a.hang(cx + i, n);
+    }
+    prevC = b + c / 2;
+    return cx + len;
+  };
+  const tunnel = (a, cx) => {
+    const maxSum = [0, 3, 4, 5, 5][d];
+    let h = 0, n = 0, c = 0;
+    for (let t = 0; t < 12; t++) {
+      const type = pick(["floor", "ceil", "both"]);
+      h = type === "ceil" ? 0 : 1 + rnd(type === "both" ? maxSum - 1 : maxSum);
+      n = type === "floor" ? 0 : 1 + rnd(type === "both" ? maxSum - h : maxSum);
+      c = (h + 8 - n) / 2;
+      if (prevC === null || Math.abs(c - prevC) <= (d >= 3 ? 3 : 2.6)) break;
+    }
+    prevC = c;
+    const w = 1 + rnd(2);
+    for (let k = 0; k < w; k++) {
+      if (h === 1 && R() < 0.5) a.spike(cx + k); else if (h) a.column(cx + k, h);
+      if (n === 1 && R() < 0.5) a.hangSpike(cx + k); else if (n) a.hang(cx + k, n);
+    }
+    return cx + w;
+  };
   const fly = (a, x) => {
-    a.fly(x);
-    let cx = x + 9 + Math.floor(R() * 3), prevC = null;
-    const maxSum = [3, 4, 5][tier];
-    const count = 3 + Math.floor(R() * 3) + (tier >= 1 ? 1 : 0);
+    a.fly(x); used.add("fly"); prevC = null;
+    let cx = x + 9 + rnd(3);
+    const count = 3 + rnd(3) + d;
     for (let i = 0; i < count; i++) {
-      let h = 0, n = 0, c = 0;
-      for (let t = 0; t < 12; t++) {
-        const type = pick(["floor", "ceil", "both"]);
-        h = type === "ceil" ? 0 : 1 + Math.floor(R() * (type === "both" ? maxSum - 1 : maxSum));
-        n = type === "floor" ? 0 : 1 + Math.floor(R() * (type === "both" ? maxSum - h : maxSum));
-        c = (h + 8 - n) / 2;
-        if (prevC === null || Math.abs(c - prevC) <= (tier === 2 ? 3 : 2.6)) break;
-      }
-      prevC = c;
-      const w = 1 + (R() < 0.5 ? 1 : 0);
-      for (let k = 0; k < w; k++) {
-        if (h === 1 && R() < 0.5) a.spike(cx + k); else if (h) a.column(cx + k, h);
-        if (n === 1 && R() < 0.5) a.hangSpike(cx + k); else if (n) a.hang(cx + k, n);
-      }
-      cx += w + Math.ceil(8 * fs) + (2 - tier) + Math.floor(R() * 2);
+      cx = (d >= 2 && R() < 0.35) ? corridor(a, cx) : tunnel(a, cx);
+      cx += Math.ceil(8 * Math.max(1, cs())) + Math.max(0, 3 - d) + rnd(2);
     }
     a.roll(cx);
     return cx + Math.ceil(4 * s);
   };
 
+  // ----- 중력 반전 구간 (천장 주행) -----
   const flip = (a, x) => {
-    a.flip(x);
-    let cx = x + Math.ceil(10 * fs);
-    const count = 3 + Math.floor(R() * 3) + tier;
+    a.flip(x); used.add("flip");
+    let cx = x + Math.ceil(10 * Math.max(1, cs()));
+    const kinds = d === 1 ? ["hs1", "hs2", "hb1", "hpair"]
+      : d === 2 ? ["hs1", "hs2", "hs3", "hb1", "hb2", "hpair", "hstair"]
+      : ["hs2", "hs3", "hb2", "hpair", "hstair", "hchain", "hchain"];
+    const count = 4 + rnd(3) + d;
     for (let i = 0; i < count; i++) {
-      const kind = pick(tier === 0 ? ["hs1", "hs2", "hb1"] : ["hs1", "hs2", "hs3", "hb1", "hb2"]);
+      const kind = pick(kinds);
       let w = 1;
-      if (kind[0] === "h" && kind[1] === "s") { w = +kind[2]; for (let j = 0; j < w; j++) a.hangSpike(cx + j); }
-      else { const h = +kind[2]; a.hang(cx, h); if (h === 1 && R() < 0.5) { a.hang(cx + 1, 1); w = 2; } }
-      cx += w + Math.ceil(6.5 * fs) + (2 - tier) + Math.floor(R() * 3);
+      if (kind === "hs1" || kind === "hs2" || kind === "hs3") { w = +kind[2]; for (let j = 0; j < w; j++) a.hangSpike(cx + j); }
+      else if (kind === "hpair") { a.hangSpike(cx); a.hangSpike(cx + 2); w = 3; }
+      else if (kind === "hb1") { a.hang(cx, 1); if (R() < 0.5) { a.hang(cx + 1, 1); w = 2; } }
+      else if (kind === "hb2") { a.hang(cx, 2); }
+      else if (kind === "hstair") { a.hang(cx, 1); a.hang(cx + 1, 2); a.hang(cx + 2, 2); a.hang(cx + 3, 1); w = 4; }
+      else if (kind === "hchain") { for (let j = 0; j < 4; j++) a.hang(cx + j, 1); a.hangSpike(cx + 3, 1); w = 4; }
+      cx += w + Math.ceil(6.6 * Math.max(1, cs())) - d + rnd(3);
     }
     a.norm(cx);
     return cx + Math.ceil(5 * s);
   };
 
+  // ----- 속도 구간: 빨간 포털(빨라짐) / 파란 포털(느려짐) -----
+  const zone = (a, x) => {
+    const fast = R() < 0.6, m = fast ? 1.3 : 0.8;
+    a.speed(x, m); mul = m; used.add(fast ? "fast" : "slow");
+    let cx = x;
+    const n = 4 + rnd(3);
+    for (let i = 0; i < n; i++) { cx += lead(); cx = ground(a, cx, pick(simple)); }
+    cx += lead(); a.speed(cx, 1); mul = 1;
+    return cx + Math.ceil(3 * s);
+  };
+
   const lv = makeLevel({ name: NAMES[r - 1], hue: (r * 47 + 20) % 360, speed: s, end: 0 }, a => {
-    // 라운드마다 특수 구간(비행/중력반전) 구성을 다르게: 없는 라운드도 있고, 후반엔 겹쳐서 등장
-    let x = 16, doneFly = !(r >= 3 && R() < 0.6), doneFlip = !(r >= 7 && R() < 0.6), doneFly2 = !(r >= 15 && R() < 0.5);
-    const fFly = 0.3 + R() * 0.15, fFlip = 0.6 + R() * 0.15, fFly2 = 0.85;
+    // 특수 구간을 스테이지 전체에 고르게 배치 (연속으로 같은 종류는 피함)
+    const allowed = ["fly"]; if (r >= 6) allowed.push("flip"); if (r >= 9) allowed.push("zone");
+    const nSp = r < 3 ? 1 : 2 + Math.floor(r / 8);
+    const sp = []; let last = null;
+    for (let i = 0; i < nSp; i++) {
+      let t; do { t = pick(allowed); } while (t === last && allowed.length > 1);
+      last = t; sp.push({ f: (i + 0.5) / nSp + (R() - 0.5) * 0.06, t });
+    }
+    const fns = { fly, flip, zone };
+    let x = 16;
     while (x < target) {
       x += lead();
       const frac = (x - 16) / (target - 16);
-      if (!doneFly && frac >= fFly) { x = fly(a, x); doneFly = true; }
-      else if (!doneFlip && frac >= fFlip) { x = flip(a, x); doneFlip = true; }
-      else if (!doneFly2 && frac >= fFly2) { x = (R() < 0.5 ? fly : flip)(a, x); doneFly2 = true; }
-      else x = ground(a, x, pick(pools[tier]));
+      if (sp.length && frac >= sp[0].f) x = fns[sp.shift().t](a, x);
+      else x = ground(a, x, pick(pools[d]));
     }
     a.setEnd(x + 8);
   });
   const parts = [];
-  if (lv.portals.some(p => p.mode === "fly")) parts.push("비행");
-  if (lv.portals.some(p => p.grav === -1)) parts.push("중력반전");
+  if (used.has("fly")) parts.push("비행");
+  if (used.has("flip")) parts.push("중력반전");
+  if (used.has("fast") || used.has("slow")) parts.push("속도변화");
   if (lv.pads.length) parts.push("점프패드");
   lv.desc = parts.join(" · ") || "스파이크 · 블록";
   return lv;
 }
 
 // 봇 검증으로 확정한 라운드별 시드 (오프라인 검증: 전 라운드 클리어 가능)
-const SEEDS = [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,1,1,1,1];
+const SEEDS = [1,1,1,1,1,1,1,1,1,1,2,1,1,5,1,6,1,2,2,1,1,2,4,3,9,4,4,23,5,9];
 const LEVELS = SEEDS.map((sd, i) => {
   const lv = HAND[i + 1] || genLevel(i + 1, sd);
   lv.stars = 1 + Math.min(3, Math.floor(i / 8));
@@ -398,20 +377,20 @@ const Snd = (() => {
 })();
 
 // ---------- 상태 ----------
-const P = { x: 0, y: GROUND - S, vy: 0, grounded: true, mode: "roll", grav: 1, angle: 0 };
+const P = { x: 0, y: GROUND - S, vy: 0, grounded: true, mode: "roll", grav: 1, angle: 0, spd: 1 };
 let LV = LEVELS[0], lvIdx = 0, sel = 0;
 let state = "menu";     // menu | play | dead | win
 let attempts = 1, deadTimer = 0, particles = [], holding = false;
 const bests = LEVELS.map((_, i) => { try { return +localStorage.getItem("tiredash-best-" + i) || 0; } catch (e) { return 0; } });
 let nextPortal = 0, shake = 0, tAnim = 0;
-const spd = () => BASE_SPEED * LV.speed;
+const spd = () => BASE_SPEED * LV.speed * P.spd;
 
 function saveBest(pct) {
   if (pct > bests[lvIdx]) { bests[lvIdx] = pct; try { localStorage.setItem("tiredash-best-" + lvIdx, pct); } catch (e) {} }
 }
 
 function reset() {
-  P.x = 0; P.y = GROUND - S; P.vy = 0; P.grounded = true; P.mode = "roll"; P.grav = 1; P.angle = 0;
+  P.x = 0; P.y = GROUND - S; P.vy = 0; P.grounded = true; P.mode = "roll"; P.grav = 1; P.angle = 0; P.spd = 1;
   nextPortal = 0; particles = []; state = "play";
   Snd.restart();
 }
@@ -512,7 +491,8 @@ function step(dt) {
     const pt = LV.portals[nextPortal++];
     if (pt.mode) P.mode = pt.mode;
     if (pt.grav) P.grav = pt.grav;
-    P.vy = 0; P.grounded = false; Snd.portal();
+    if (pt.speed) P.spd = pt.speed; else { P.vy = 0; P.grounded = false; }
+    Snd.portal();
   }
 
   if (P.mode === "roll") {
@@ -537,22 +517,28 @@ function step(dt) {
   if (P.y > 640 || P.y < -100) return die();
 
   const px = Math.floor(P.x / T);
-  // 블록
-  for (const b of LV.blocks) {
-    if (b.x < px - 2 || b.x > px + 3) continue;
-    const bx = b.x * T, by = GROUND - (b.y + 1) * T;
-    if (!overlap(P.x, P.y, S, S, bx, by, T, T)) continue;
-    if (P.mode === "roll" && dir === 1 && P.vy >= 0 && prevBottom <= by + 2) {
-      P.y = by - S; P.vy = 0; P.grounded = true;
-    } else if (P.mode === "roll" && dir === -1 && P.vy <= 0 && prevTop >= by + T - 2) {
-      P.y = by + T; P.vy = 0; P.grounded = true;
-    } else return die();
+  // 블록 (주변 타일만 검사)
+  for (let tx = px - 2; tx <= px + 3; tx++) {
+    const bl = LV.blocksAt[tx];
+    if (!bl) continue;
+    for (const b of bl) {
+      const bx = b.x * T, by = GROUND - (b.y + 1) * T;
+      if (!overlap(P.x, P.y, S, S, bx, by, T, T)) continue;
+      if (P.mode === "roll" && dir === 1 && P.vy >= 0 && prevBottom <= by + 2) {
+        P.y = by - S; P.vy = 0; P.grounded = true;
+      } else if (P.mode === "roll" && dir === -1 && P.vy <= 0 && prevTop >= by + T - 2) {
+        P.y = by + T; P.vy = 0; P.grounded = true;
+      } else return die();
+    }
   }
   // 스파이크
-  for (const s of LV.spikes) {
-    if (s.x < px - 2 || s.x > px + 3) continue;
-    const sx = s.x * T, sy = GROUND - (s.y + 1) * T;
-    if (overlap(P.x, P.y, S, S, sx + 13, s.down ? sy : sy + 16, 14, 24)) return die();
+  for (let tx = px - 2; tx <= px + 3; tx++) {
+    const sl = LV.spikesAt[tx];
+    if (!sl) continue;
+    for (const sp of sl) {
+      const sx = sp.x * T, sy = GROUND - (sp.y + 1) * T;
+      if (overlap(P.x, P.y, S, S, sx + 13, sp.down ? sy : sy + 16, 14, 24)) return die();
+    }
   }
   // 패드
   if (P.mode === "roll" && dir === 1) for (const d of LV.pads) {
@@ -774,7 +760,7 @@ function drawMenu() {
   });
   const cur = LEVELS[sel];
   text((sel + 1) + ". " + cur.name + "  —  " + cur.desc, W / 2, H - 40, 20, "#fff");
-  text(W < 900 ? "터치: 점프(화면 어디든) · 파란 포탈 비행 · 분홍 포탈 중력 반전" : "클릭/터치 또는 방향키 + 스페이스 · N: 소리 · 게임 중: 누르고 있으면 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전", W / 2, H - 14, W < 900 ? 15 : 13, "#cfd6ff");
+  text(W < 900 ? "터치: 점프(화면 어디든) · 파란 포탈 비행 · 분홍 포탈 중력 반전" : "클릭/터치 또는 방향키 + 스페이스 · N: 소리 · 누르고 있으면 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전 · 빨강/하늘 포탈 속도 변화", W / 2, H - 14, W < 900 ? 15 : 13, "#cfd6ff");
 }
 
 // ---------- 메인 루프 ----------
