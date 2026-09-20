@@ -65,7 +65,6 @@ const HAND = {
     a.spike(14); a.spike(20); a.spike(21); a.spike(28); a.spike(29); a.spike(30);
     for (let x = 36; x <= 37; x++) a.column(x, 1);
     for (let x = 38; x <= 39; x++) a.column(x, 2);
-    for (let x = 40; x <= 41; x++) a.column(x, 3);
     a.spike(51); a.spike(52);
     a.gap(58, 61); a.spike(65);
     a.pad(68); a.gap(70, 76);
@@ -496,8 +495,10 @@ function drawSpike(x, y, down) {
   ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 
+const TIRE_SCALE = 1.4;     // 화면에 그려지는 크기 (충돌 판정 S는 그대로라 조금 더 관대함)
+const TIRE_R = 18 * TIRE_SCALE;
 function drawTire(cx, cy, angle, wings) {
-  ctx.save(); ctx.translate(cx, cy);
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(TIRE_SCALE, TIRE_SCALE);
   if (wings) {
     ctx.fillStyle = "#ffd447"; ctx.strokeStyle = "#7a5c00"; ctx.lineWidth = 2;
     const flap = Math.sin(tAnim * 18) * 4;
@@ -553,7 +554,11 @@ function draw() {
   drawBackground(cam);
   if (state === "menu") drawGround(cam, true); else drawWorld(cam);
 
-  if (state !== "dead") drawTire(PLAYER_SCREEN_X + S / 2, P.y + S / 2, P.angle, P.mode === "fly");
+  if (state !== "dead") {
+    // 큰 타이어가 바닥/천장 위에 정확히 얹혀 보이도록 위치 보정 (비행 중에는 중앙)
+    const ty = P.mode === "fly" ? P.y + S / 2 : P.grav === 1 ? P.y + S - TIRE_R : P.y + TIRE_R;
+    drawTire(PLAYER_SCREEN_X + S / 2, ty, P.angle, P.mode === "fly");
+  }
   for (const p of particles) {
     ctx.globalAlpha = Math.max(0, p.life);
     ctx.fillStyle = "#22222a";
