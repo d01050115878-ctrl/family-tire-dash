@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>타이어 대시</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #0b0d1a; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #0b0d1a; overflow: hidden; touch-action: none; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   body { display: flex; align-items: center; justify-content: center; }
-  canvas { max-width: 100vw; max-height: 100vh; touch-action: none; background: #000; }
+  canvas { display: block; max-width: 100vw; max-height: 100vh; touch-action: none; background: #000; }
 </style>
 </head>
 <body>
@@ -16,7 +17,8 @@
 "use strict";
 const cv = document.getElementById("c");
 const ctx = cv.getContext("2d");
-const W = 960, H = 540, T = 40, GROUND = 440;
+let W = 960, H = 540, OY = 0, PSX = 240, HUD = 0;   // 화면 크기는 가로/세로 모드에 따라 layout()에서 바뀜
+const T = 40, GROUND = 440;
 
 // ---------- 물리 상수 ----------
 const BASE_SPEED = 360;     // px/s (스테이지별 배율 적용)
@@ -25,7 +27,6 @@ const JUMP_V = 720;
 const PAD_V = 1200;
 const S = 30;               // 플레이어 히트박스
 const FLY_TOP = GROUND - 8 * T;
-const PLAYER_SCREEN_X = 240;
 
 // ---------- 레벨 빌더 (모든 맵은 오리지널 설계, 타일 좌표) ----------
 function makeLevel(meta, build) {
@@ -435,16 +436,34 @@ function die() {
 }
 
 // ---------- 입력 ----------
-const COLS = 6;
-const cardRect = i => ({ x: 30 + (i % COLS) * 150, y: 128 + Math.floor(i / COLS) * 70, w: 140, h: 62 });
-const MENU_BTN = { x: 20, y: 48, w: 64, h: 26 };
+let COLS = 6, CARD_W = 140, CARD_Y0 = 128, CARD_STEP = 70;
+const cardRect = i => ({ x: 30 + (i % COLS) * (CARD_W + 10), y: CARD_Y0 + Math.floor(i / COLS) * CARD_STEP, w: CARD_W, h: 62 });
+let MENU_BTN = { x: 20, y: 48, w: 64, h: 26 };
+let MUTE_BTN = { x: W - 84, y: 68, w: 64, h: 26 };
+// 세로 화면(폰/태블릿): 가로 폭은 720 으로 고정하고 세로를 화면 비율만큼 늘려서 위아래 공간을 채움
+function layout() {
+  if (typeof innerWidth === "undefined") return;
+  const vw = innerWidth, vh = innerHeight;
+  if (vh > vw * 1.1) {
+    W = 720; H = Math.round(W * vh / vw); OY = Math.round((H - 540) / 2); PSX = 190; HUD = 26;
+    COLS = 4; CARD_W = Math.floor((W - 60 - 30) / 4); CARD_Y0 = 150 + HUD; CARD_STEP = 72;
+    cv.style.width = vw + "px"; cv.style.height = vh + "px";
+  } else {
+    W = 960; H = 540; OY = 0; PSX = 240; HUD = 0;
+    COLS = 6; CARD_W = 140; CARD_Y0 = 128; CARD_STEP = 70;
+    cv.style.width = ""; cv.style.height = "";
+  }
+  if (cv.width !== W) cv.width = W;
+  if (cv.height !== H) cv.height = H;
+  MENU_BTN = { x: 20, y: 48 + HUD, w: 64, h: 26 };
+  MUTE_BTN = { x: W - 84, y: 68 + HUD, w: 64, h: 26 };
+}
 const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 function toCanvas(e) {
   const r = cv.getBoundingClientRect();
   return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
 }
 
-const MUTE_BTN = { x: W - 84, y: 68, w: 64, h: 26 };
 function press(pos) {
   Snd.init();
   if (pos && inRect(pos, MUTE_BTN)) { Snd.toggle(); return; }
@@ -470,8 +489,14 @@ addEventListener("keydown", e => {
   else if (e.code === "Escape" || e.code === "KeyM") goMenu();
 });
 addEventListener("keyup", e => { if (["Space", "ArrowUp", "KeyW", "Enter"].includes(e.code)) release(); });
-cv.addEventListener("pointerdown", e => { e.preventDefault(); press(toCanvas(e)); });
+// 캔버스 밖(빈 공간)을 눌러도 조작되도록 window 전체에서 터치/클릭을 받음
+addEventListener("pointerdown", e => { e.preventDefault(); press(toCanvas(e)); });
 addEventListener("pointerup", release);
+addEventListener("pointercancel", release);
+addEventListener("contextmenu", e => e.preventDefault());
+addEventListener("resize", layout);
+addEventListener("orientationchange", layout);
+layout();
 
 // ---------- 업데이트 ----------
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
@@ -509,7 +534,7 @@ function step(dt) {
     P.angle = P.vy * 0.0009;
     P.grounded = false;
   }
-  if (P.y > H + 100 || P.y < -100) return die();
+  if (P.y > 640 || P.y < -100) return die();
 
   const px = Math.floor(P.x / T);
   // 블록
@@ -564,13 +589,13 @@ function hue() {
 
 function drawBackground(cam) {
   const h = hue();
-  const g = ctx.createLinearGradient(0, 0, 0, GROUND);
+  const g = ctx.createLinearGradient(0, 0, 0, GROUND + OY);
   g.addColorStop(0, `hsl(${h},55%,22%)`);
   g.addColorStop(1, `hsl(${h + 30},60%,40%)`);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   for (let i = 0; i < 14; i++) {
     const x = ((i * 190 - cam * 0.25) % (14 * 190) + 14 * 190) % (14 * 190) - 200;
-    const y = 80 + (i * 97) % 260, r = 30 + (i * 53) % 50;
+    const y = 80 + (i * 97) % 260 + OY * ((i * 53) % 10) / 10 - OY * 0.2, r = 30 + (i * 53) % 50;
     ctx.fillStyle = `hsla(${h + 20},60%,70%,0.07)`;
     ctx.beginPath();
     if (i % 2) ctx.arc(x, y, r, 0, 7);
@@ -588,12 +613,12 @@ function drawGround(cam, noGaps) {
   if (cur < x1) segs.push([cur, x1]);
   for (const s of segs) {
     ctx.fillStyle = `hsl(${hue()},40%,12%)`;
-    ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], H - GROUND);
+    ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], H - OY - GROUND);
     ctx.fillStyle = `hsl(${hue() + 20},70%,60%)`;
     ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], 3);
   }
   ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
-  for (let x = -((cam % T) + T) % T; x < W; x += T) { ctx.beginPath(); ctx.moveTo(x, GROUND); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let x = -((cam % T) + T) % T; x < W; x += T) { ctx.beginPath(); ctx.moveTo(x, GROUND); ctx.lineTo(x, H - OY); ctx.stroke(); }
 }
 
 function drawBlock(x, y) {
@@ -658,7 +683,7 @@ function drawWorld(cam) {
     const x0 = r[0] * T - cam, x1 = r[1] * T - cam;
     if (x1 < 0 || x0 > W) continue;
     ctx.fillStyle = `hsl(${hue()},40%,12%)`;
-    ctx.fillRect(x0, 0, x1 - x0, FLY_TOP);
+    ctx.fillRect(x0, -OY, x1 - x0, FLY_TOP + OY);
     ctx.fillStyle = `hsl(${hue() + 20},70%,60%)`;
     ctx.fillRect(x0, FLY_TOP - 3, x1 - x0, 3);
   }
@@ -680,16 +705,17 @@ function drawWorld(cam) {
 }
 
 function draw() {
-  const cam = P.x - PLAYER_SCREEN_X;
+  const cam = P.x - PSX;
   ctx.save();
   if (shake > 0) ctx.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
   drawBackground(cam);
+  ctx.translate(0, OY);   // 세로 화면에서는 플레이 영역을 가운데로
   if (state === "menu") drawGround(cam, true); else drawWorld(cam);
 
   if (state !== "dead") {
     // 큰 타이어가 바닥/천장 위에 정확히 얹혀 보이도록 위치 보정 (비행 중에는 중앙)
     const ty = P.mode === "fly" ? P.y + S / 2 : P.grav === 1 ? P.y + S - DICE_H : P.y + DICE_H;
-    drawDice(PLAYER_SCREEN_X + S / 2, ty, P.angle, P.mode === "fly");
+    drawDice(PSX + S / 2, ty, P.angle, P.mode === "fly");
   }
   for (const p of particles) {
     ctx.globalAlpha = Math.max(0, p.life);
@@ -703,22 +729,26 @@ function draw() {
 
 function drawHUD() {
   const pct = Math.min(100, P.x / (LV.end * T) * 100);
-  ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(W / 2 - 200, 18, 400, 12);
-  ctx.fillStyle = "#8dff6a"; ctx.fillRect(W / 2 - 200, 18, 4 * pct, 12);
-  text(Math.floor(pct) + "%", W / 2 + 232, 32, 18);
+  const BW = W < 900 ? 300 : 400;
+  ctx.save(); ctx.translate(0, HUD);
+  ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(W / 2 - BW / 2, 18, BW, 12);
+  ctx.fillStyle = "#8dff6a"; ctx.fillRect(W / 2 - BW / 2, 18, BW * pct / 100, 12);
+  text(Math.floor(pct) + "%", W / 2 + BW / 2 + 32, 32, 18);
   text((lvIdx + 1) + ". " + LV.name, 20, 34, 18, "#fff", "left");
   text("시도 " + attempts, W - 20, 34, 18, "#fff", "right");
   text("최고 " + bests[lvIdx] + "%", W - 20, 58, 16, "#ffd447", "right");
+  ctx.restore();
   ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(MENU_BTN.x, MENU_BTN.y, MENU_BTN.w, MENU_BTN.h);
   text("메뉴", MENU_BTN.x + MENU_BTN.w / 2, MENU_BTN.y + 19, 15);
   drawMute();
 
   if (state === "win") {
+    const cy = H / 2 - 40;
     ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
-    text("클리어!", W / 2, 230, 72, "#8dff6a");
-    text("시도 횟수: " + attempts, W / 2, 290, 26);
-    text(lvIdx + 1 < LEVELS.length ? "클릭 / 스페이스: 다음 라운드로" : "모든 라운드 클리어! 클릭하면 메뉴로", W / 2, 340, 20, "#cfd6ff");
-    text("메뉴 버튼으로 라운드 선택", W / 2, 372, 16, "#cfd6ff");
+    text("클리어!", W / 2, cy, 72, "#8dff6a");
+    text("시도 횟수: " + attempts, W / 2, cy + 60, 26);
+    text(lvIdx + 1 < LEVELS.length ? "화면을 터치 / 스페이스: 다음 라운드로" : "모든 라운드 클리어! 터치하면 메뉴로", W / 2, cy + 110, 20, "#cfd6ff");
+    text("메뉴 버튼으로 라운드 선택", W / 2, cy + 142, 16, "#cfd6ff");
   }
 }
 
@@ -730,8 +760,8 @@ function drawMute() {
 function drawMenu() {
   ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
   drawMute();
-  text("타이어 대시", W / 2, 66, 50, "#ffd447");
-  text("라운드를 골라 시작하세요 (총 " + LEVELS.length + "라운드)", W / 2, 100, 18, "#cfd6ff");
+  text("타이어 대시", W / 2, 66 + HUD, 50, "#ffd447");
+  text("라운드를 골라 시작하세요 (총 " + LEVELS.length + "라운드)", W / 2, 100 + HUD, 18, "#cfd6ff");
   LEVELS.forEach((lv, i) => {
     const r = cardRect(i), on = i === sel;
     ctx.fillStyle = on ? `hsla(${lv.hue},60%,32%,0.97)` : `hsla(${lv.hue},40%,16%,0.88)`;
@@ -743,8 +773,8 @@ function drawMenu() {
     text(bests[i] >= 100 ? "CLEAR" : bests[i] + "%", r.x + r.w - 12, r.y + 48, 16, bests[i] >= 100 ? "#8dff6a" : "#fff", "right");
   });
   const cur = LEVELS[sel];
-  text((sel + 1) + ". " + cur.name + "  —  " + cur.desc, W / 2, 500, 20, "#fff");
-  text("클릭/터치 또는 방향키 + 스페이스 · N: 소리 · 게임 중: 누르고 있으면 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전", W / 2, 526, 13, "#cfd6ff");
+  text((sel + 1) + ". " + cur.name + "  —  " + cur.desc, W / 2, H - 40, 20, "#fff");
+  text(W < 900 ? "터치: 점프(화면 어디든) · 파란 포탈 비행 · 분홍 포탈 중력 반전" : "클릭/터치 또는 방향키 + 스페이스 · N: 소리 · 게임 중: 누르고 있으면 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전", W / 2, H - 14, W < 900 ? 15 : 13, "#cfd6ff");
 }
 
 // ---------- 메인 루프 ----------
