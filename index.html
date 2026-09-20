@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>타이어 대시</title>
+<title>Dice Dash</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0b0d1a; overflow: hidden; touch-action: none; overscroll-behavior: none;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
@@ -62,7 +62,7 @@ function makeLevel(meta, build) {
 
 const HAND = {
   // 1라운드: 초원 — 입문
-  1: makeLevel({ name: "타이어 초원", desc: "기본기 익히기", stars: 1, hue: 200, speed: 1.0, end: 196 }, a => {
+  1: makeLevel({ name: "주사위 초원", desc: "기본기 익히기", stars: 1, hue: 200, speed: 1.0, end: 196 }, a => {
     a.spike(14); a.spike(20); a.spike(21); a.spike(28); a.spike(29); a.spike(30);
     for (let x = 36; x <= 37; x++) a.column(x, 1);
     for (let x = 38; x <= 39; x++) a.column(x, 2);
@@ -174,7 +174,7 @@ const HAND = {
 };
 
 // ---------- 30라운드: 난이도별 구간 조합 생성기 ----------
-const NAMES = ["타이어 초원","고무나무 숲","시골 국도","안개 낀 아침","해바라기 언덕","냇가 질주","종이비행기 하늘","등대 마을","사막 횡단","네온 시티",
+const NAMES = ["주사위 초원","고무나무 숲","시골 국도","안개 낀 아침","해바라기 언덕","냇가 질주","종이비행기 하늘","등대 마을","사막 횡단","네온 시티",
   "얼음 동굴","눈보라 언덕","지하 광산","톱니바퀴 공장","심해 터널","번개 폭풍","화산 능선","유령의 다리","크리스탈 숲","용암 동굴",
   "무중력 정거장","로봇 도시","태풍의 눈","지옥 고속도로","은하 철도","블랙홀 가장자리","시간의 미로","폭주 서킷","최후의 관문","별빛 협곡"];
 
@@ -713,7 +713,7 @@ function draw() {
   if (state === "menu") drawGround(cam, true); else drawWorld(cam);
 
   if (state !== "dead") {
-    // 큰 타이어가 바닥/천장 위에 정확히 얹혀 보이도록 위치 보정 (비행 중에는 중앙)
+    // 큰 주사위가 바닥/천장 위에 정확히 얹혀 보이도록 위치 보정 (비행 중에는 중앙)
     const ty = P.mode === "fly" ? P.y + S / 2 : P.grav === 1 ? P.y + S - DICE_H : P.y + DICE_H;
     drawDice(PSX + S / 2, ty, P.angle, P.mode === "fly");
   }
@@ -760,7 +760,7 @@ function drawMute() {
 function drawMenu() {
   ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
   drawMute();
-  text("타이어 대시", W / 2, 66 + HUD, 50, "#ffd447");
+  text("Dice Dash", W / 2, 66 + HUD, 50, "#ffd447");
   text("라운드를 골라 시작하세요 (총 " + LEVELS.length + "라운드)", W / 2, 100 + HUD, 18, "#cfd6ff");
   LEVELS.forEach((lv, i) => {
     const r = cardRect(i), on = i === sel;
