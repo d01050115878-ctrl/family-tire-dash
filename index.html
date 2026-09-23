@@ -109,12 +109,14 @@ function genLevel(r, seed) {
   const rnd = n => Math.floor(R() * n);
   const pick = arr => arr[rnd(arr.length)];
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const s = Math.round((r <= 30 ? 0.95 + 0.4 * (r - 1) / 29 : 1.35 + 0.15 * (r - 30) / 20) * 100) / 100;   // 기본 속도 0.95 → 1.5
-  const d = r <= 5 ? 1 : r <= 12 ? 2 : r <= 22 ? 3 : r <= 35 ? 4 : 5;   // 난이도 단계
+  const sBase = Math.round((r <= 30 ? 0.95 + 0.4 * (r - 1) / 29 : 1.35 + 0.15 * (r - 30) / 20) * 100) / 100;   // 기본 속도 0.95 → 1.5
+  const spdBoost = r <= 15 ? 1 : 1 + 0.5 * Math.min(1, (r - 15) / 20);   // 1~15라운드는 기존 속도 유지, 16라운드부터 서서히 최대 1.5배까지 빨라짐
+  const s = Math.round(sBase * spdBoost * 100) / 100;
+  const d = r <= 8 ? 1 : r <= 16 ? 2 : r <= 26 ? 3 : r <= 38 ? 4 : 5;   // 난이도 단계 (초반 라운드가 너무 가파르지 않도록 완만하게 조정)
   const target = r <= 30 ? 380 + r * 15 : 830 + (r - 30) * 12;          // 길이: 약 400 ~ 1070 타일
   let mul = 1;                                                        // 속도 포털로 바뀐 현재 속도 배율
   const cs = () => s * mul;
-  const lead = () => Math.max(Math.ceil(4.4 * cs()), Math.ceil(6.6 * cs()) - d) + rnd(3);
+  const lead = () => Math.max(Math.ceil(4.4 * cs()), Math.ceil(6.6 * cs()) - d) + rnd(3) + (d <= 2 ? 2 : 0);
   let prevC = null;                                                   // 비행 구간에서 직전 통로 중심 (행 단위)
   const used = new Set();
 
@@ -130,6 +132,9 @@ function genLevel(r, seed) {
       case "hurdle": { const h = 1 + rnd(2), w = 1 + rnd(2); for (let i = 0; i < w; i++) a.column(x + i, h); return x + w; }
       case "stairs2": for (let i = 0; i < 2; i++) { a.column(x + i, 1); a.column(x + 2 + i, 2); } return x + 4;
       case "stairs3": for (let i = 0; i < 2; i++) { a.column(x + i, 1); a.column(x + 2 + i, 2); a.column(x + 4 + i, 3); } return x + 6;
+      case "stairs4": for (let i = 0; i < 3; i++) { a.column(x + i, 1); a.column(x + 3 + i, 2); a.column(x + 6 + i, 3); a.column(x + 9 + i, 4); } return x + 12;
+      case "pyramid": for (let i = 0; i < 3; i++) { a.column(x + i, 1); a.column(x + 3 + i, 2); a.column(x + 6 + i, 3); a.column(x + 9 + i, 2); a.column(x + 12 + i, 1); } return x + 15;
+      case "zigzagStep": { const n = 4 + rnd(2); for (let i = 0; i < n; i++) a.column(x + i, 1 + (i % 2)); return x + n; }
       case "wave": a.column(x, 1); a.column(x + 1, 2); a.column(x + 2, 2); a.column(x + 3, 1); return x + 4;
       case "chain": for (let i = 0; i < 4; i++) a.column(x + i, 1); a.spike(x + 3, 1); return x + 4;
       case "chain2": for (let i = 0; i < 8; i++) a.column(x + i, 1); a.spike(x + 3, 1); a.spike(x + 6, 1); return x + 8;
@@ -143,14 +148,17 @@ function genLevel(r, seed) {
       case "underbridge": for (let i = 0; i < 5; i++) a.hang(x + i, 4); a.spike(x + 2); return x + 5;
     }
   };
+  // stairs3/stairs4/pyramid/pillarhop 처럼 좁은 발판에 정확히 착지해야 하는 장애물은
+  // 속도가 아주 빨라지는 4~5단계에서는 물리적으로 클리어가 불가능해질 수 있어 3단계까지만 사용
   const pools = {
-    1: ["spike1", "spike1", "spike2", "spikeGap", "hurdle", "stairs2", "gap3", "gap4", "wave", "chain"],
-    2: ["spike2", "spike3", "spikeGap", "hurdle", "stairs2", "wave", "chain", "gap3", "gap4", "padgap", "underbridge", "pillarhop"],
-    3: ["spike3", "spikeGap", "spikeGap3", "stairs3", "wave", "chain", "chain2", "gap4", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "pillarhop"],
-    4: ["spike3", "spikeGap3", "stairs3", "wave", "chain2", "chain2", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "pillarhop", "pillarhop"],
-    5: ["spike3", "spikeGap3", "stairs3", "chain2", "chain2", "gap5", "doublegap", "padSpikes", "padSpikes", "underbridge", "pillarhop", "pillarhop", "padgap"],
+    1: ["spike1", "spike2", "spikeGap", "hurdle", "stairs2", "zigzagStep", "gap3", "wave", "chain"],
+    2: ["spike2", "spike3", "spikeGap", "hurdle", "stairs2", "stairs3", "zigzagStep", "wave", "chain", "gap3", "gap4", "padgap", "underbridge", "pillarhop"],
+    3: ["spike3", "spikeGap", "spikeGap3", "stairs3", "stairs4", "pyramid", "zigzagStep", "wave", "chain", "chain2", "gap4", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "pillarhop"],
+    4: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padgap", "padSpikes", "underbridge"],
+    5: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padSpikes", "padSpikes", "underbridge", "padgap"],
   };
-  const simple = ["spike1", "spike2", "spikeGap", "hurdle", "gap3", "gap4", "wave", "stairs2"];
+  // zone() 은 최고 속도(1.3배 포털 x 후반 라운드 가속)가 겹칠 수 있어 검증된 장애물만 사용
+  const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep"];
 
   // ----- 비행 구간: 터널 + 오르내리는 통로 -----
   const corridor = (a, cx) => {
@@ -187,7 +195,7 @@ function genLevel(r, seed) {
   const fly = (a, x) => {
     a.fly(x); used.add("fly"); prevC = null;
     let cx = x + 9 + rnd(3);
-    const count = 3 + rnd(3) + d;
+    const count = 4 + rnd(3) + d;   // 화면 속 우주선 구간처럼 이어지는 길이 늘림
     for (let i = 0; i < count; i++) {
       cx = (d >= 2 && R() < 0.35) ? corridor(a, cx) : tunnel(a, cx);
       cx += Math.ceil(8 * Math.max(1, cs())) + Math.max(0, 3 - d) + rnd(2);
@@ -233,7 +241,7 @@ function genLevel(r, seed) {
   const lv = makeLevel({ name: "", hue: 0, speed: s, end: 0 }, a => {
     // 특수 구간을 스테이지 전체에 고르게 배치 (연속으로 같은 종류는 피함)
     const allowed = ["fly"]; if (r >= 6) allowed.push("flip"); if (r >= 9) allowed.push("zone");
-    const nSp = r < 3 ? 1 : 2 + Math.floor(r / 8);
+    const nSp = r < 3 ? 2 : 3 + Math.floor(r / 8);   // 비행 구간처럼 길게 이어지는 구간을 더 자주 배치
     const sp = []; let last = null;
     for (let i = 0; i < nSp; i++) {
       let t; do { t = pick(allowed); } while (t === last && allowed.length > 1);
@@ -744,6 +752,8 @@ const P = { x: 0, y: GROUND - S, vy: 0, grounded: true, mode: "roll", grav: 1, a
 let LV = LEVELS[0], lvIdx = 0, sel = 0;
 let state = "menu";     // menu | play | dead | win
 let attempts = 1, deadTimer = 0, particles = [], holding = false;
+let trail = [];   // 주사위 뒤에 남는 잔상(그림자) 기록
+const TRAIL_LEN = 7;
 const bests = LEVELS.map((_, i) => { try { return +localStorage.getItem("tiredash-best-" + i) || 0; } catch (e) { return 0; } });
 let nextPortal = 0, shake = 0, tAnim = 0;
 const spd = () => BASE_SPEED * LV.speed * P.spd;
@@ -754,7 +764,7 @@ function saveBest(pct) {
 
 function reset() {
   P.x = 0; P.y = GROUND - S; P.vy = 0; P.grounded = true; P.mode = "roll"; P.grav = 1; P.angle = 0; P.spd = 1;
-  nextPortal = 0; particles = []; state = "play";
+  nextPortal = 0; particles = []; trail = []; state = "play";
   Snd.restart();
 }
 
@@ -1043,6 +1053,20 @@ function drawDice(cx, cy, angle, wings) {
   ctx.restore();
 }
 
+// 주사위 뒤에 남기는 그림자 잔상 (세부 무늬 없이 실루엣만, 뒤로 갈수록 흐려지고 작아짐)
+function drawDiceGhost(cx, cy, angle, alpha, scale) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.translate(cx, cy); ctx.rotate(angle); ctx.scale(scale, scale);
+  const h = DICE_H, r = 7;
+  ctx.beginPath();
+  ctx.moveTo(-h + r, -h); ctx.lineTo(h - r, -h); ctx.quadraticCurveTo(h, -h, h, -h + r);
+  ctx.lineTo(h, h - r); ctx.quadraticCurveTo(h, h, h - r, h);
+  ctx.lineTo(-h + r, h); ctx.quadraticCurveTo(-h, h, -h, h - r);
+  ctx.lineTo(-h, -h + r); ctx.quadraticCurveTo(-h, -h, -h + r, -h);
+  ctx.closePath();
+  ctx.fillStyle = "#9fc9ff"; ctx.fill();
+  ctx.restore();
+}
+
 function text(s, x, y, size, color = "#fff", align = "center") {
   ctx.font = `bold ${size}px "Malgun Gothic", sans-serif`;
   ctx.textAlign = align; ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillText(s, x + 2, y + 2);
@@ -1086,6 +1110,14 @@ function draw() {
   if (state !== "dead") {
     // 큰 주사위가 바닥/천장 위에 정확히 얹혀 보이도록 위치 보정 (비행 중에는 중앙)
     const ty = P.mode === "fly" ? P.y + S / 2 : P.grav === 1 ? P.y + S - DICE_H : P.y + DICE_H;
+    if (state === "play") {
+      trail.push({ y: ty, angle: P.angle });
+      if (trail.length > TRAIL_LEN) trail.shift();
+      for (let i = 0; i < trail.length - 1; i++) {
+        const age = trail.length - 1 - i, t = age / TRAIL_LEN;
+        drawDiceGhost(PSX + S / 2 - age * 8, trail[i].y, trail[i].angle, 0.32 * (1 - t), 1 - t * 0.35);
+      }
+    }
     drawDice(PSX + S / 2, ty, P.angle, P.mode === "fly");
   }
   for (const p of particles) {
