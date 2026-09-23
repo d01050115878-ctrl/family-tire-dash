@@ -115,8 +115,9 @@ function genLevel(r, seed) {
   const target = r <= 30 ? 380 + r * 15 : 830 + (r - 30) * 12;          // 길이: 약 400 ~ 1070 타일
   let mul = 1;                                                        // 속도 포털로 바뀐 현재 속도 배율
   const cs = () => s * mul;
-  const extra = r >= 40 ? 2.4 : r > 30 ? 1.2 : 0;                    // 후반 라운드는 빠른 속도에 비해 장애물이 촘촘하지 않도록 간격 추가
-  const lead = () => Math.max(Math.ceil(4.4 * cs()), Math.ceil(6.6 * cs()) - d) + rnd(3) + (d <= 2 ? 2 : 0) + Math.ceil(extra * cs());
+  // 장애물 사이 간격: 20라운드까지는 기존 방식, 21라운드부터는 속도에 비례해 '반응 시간'이 일정하게 확보되도록 넓힘
+  const gapT = r <= 30 ? 6.8 : 9;
+  const lead = () => (r <= 20 ? Math.max(Math.ceil(4.4 * cs()), Math.ceil(6.6 * cs()) - d) + (d <= 2 ? 2 : 0) : Math.ceil(gapT * cs())) + rnd(3);
   let prevC = null;                                                   // 비행 구간에서 직전 통로 중심 (행 단위)
   const used = new Set();
 
@@ -198,7 +199,7 @@ function genLevel(r, seed) {
     const count = 4 + rnd(3) + d;   // 화면 속 우주선 구간처럼 이어지는 길이 늘림
     for (let i = 0; i < count; i++) {
       cx = (d >= 2 && R() < 0.35) ? corridor(a, cx) : tunnel(a, cx);
-      cx += Math.ceil(8 * Math.max(1, cs())) + Math.max(0, 3 - d) + rnd(2);
+      cx += Math.ceil((r > 30 ? 9.5 : 8) * Math.max(1, cs())) + Math.max(0, 3 - d) + rnd(2);
     }
     a.roll(cx);
     return cx + Math.ceil(4 * s);
@@ -221,7 +222,7 @@ function genLevel(r, seed) {
       else if (kind === "hb2") { a.hang(cx, 2); }
       else if (kind === "hstair") { a.hang(cx, 1); a.hang(cx + 1, 2); a.hang(cx + 2, 2); a.hang(cx + 3, 1); w = 4; }
       else if (kind === "hchain") { for (let j = 0; j < 4; j++) a.hang(cx + j, 1); a.hangSpike(cx + 3, 1); w = 4; }
-      cx += w + Math.ceil(6.6 * Math.max(1, cs())) - d + rnd(3);
+      cx += w + (r > 30 ? lead() : Math.ceil(6.6 * Math.max(1, cs())) - d + rnd(3));
     }
     a.norm(cx);
     return cx + Math.ceil(5 * s);
