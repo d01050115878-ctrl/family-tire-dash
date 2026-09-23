@@ -161,27 +161,14 @@ function genLevel(r, seed) {
   // zone() 은 최고 속도(1.3배 포털 x 후반 라운드 가속)가 겹칠 수 있어 검증된 장애물만 사용
   const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep"];
 
-  // ----- 비행 구간: 터널 + 오르내리는 통로 -----
-  const corridor = (a, cx) => {
-    const c = [0, 5, 4, 3, 3, 3][d] + (d >= 3 && R() < 0.4 ? 1 : 0);   // 통로 폭(행)
-    const len = 6 + rnd(5), hi = 8 - c;
-    let b = prevC === null ? rnd(hi + 1) : clamp(Math.round(prevC - c / 2 + (R() - 0.5) * 2), 0, hi);
-    for (let i = 0; i < len; i++) {
-      if (i > 0 && i % 2 === 0 && R() < 0.6) b = clamp(b + (R() < 0.5 ? -1 : 1), 0, hi);
-      const n = 8 - c - b;
-      if (b) a.column(cx + i, b);
-      if (n) a.hang(cx + i, n);
-    }
-    prevC = b + c / 2;
-    return cx + len;
-  };
+  // ----- 비행 구간: 바닥 또는 천장 중 한쪽에만 장애물 (위아래 동시에 막는 통로는 만들지 않음) -----
   const tunnel = (a, cx) => {
     const maxSum = [0, 3, 4, 5, 5, 5][d];
     let h = 0, n = 0, c = 0;
     for (let t = 0; t < 12; t++) {
-      const type = pick(["floor", "ceil", "both"]);
-      h = type === "ceil" ? 0 : 1 + rnd(type === "both" ? maxSum - 1 : maxSum);
-      n = type === "floor" ? 0 : 1 + rnd(type === "both" ? maxSum - h : maxSum);
+      const type = pick(["floor", "ceil"]);
+      h = type === "ceil" ? 0 : 1 + rnd(maxSum);
+      n = type === "floor" ? 0 : 1 + rnd(maxSum);
       c = (h + 8 - n) / 2;
       if (prevC === null || Math.abs(c - prevC) <= (d >= 3 ? 3 : 2.6)) break;
     }
@@ -198,7 +185,7 @@ function genLevel(r, seed) {
     let cx = x + 9 + rnd(3);
     const count = 4 + rnd(3) + d;   // 화면 속 우주선 구간처럼 이어지는 길이 늘림
     for (let i = 0; i < count; i++) {
-      cx = (d >= 2 && R() < 0.35) ? corridor(a, cx) : tunnel(a, cx);
+      cx = tunnel(a, cx);
       cx += Math.ceil((r > 30 ? 9.5 : 8) * Math.max(1, cs())) + Math.max(0, 3 - d) + rnd(2);
     }
     a.roll(cx);
