@@ -21,7 +21,7 @@ let W = 960, H = 540, OY = 0, PSX = 240, HUD = 0;   // 화면 크기는 가로/�
 const T = 40, GROUND = 440;
 
 // ---------- 물리 상수 ----------
-const BASE_SPEED = 360;     // px/s (스테이지별 배율 적용)
+const BASE_SPEED = 468;     // px/s (스테이지별 배율 적용, 기존 360의 1.3배)
 const GRAV = 2600;
 const JUMP_V = 720;
 const PAD_V = 1200;
@@ -971,6 +971,22 @@ function drawGround(cam, noGaps) {
     ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], H - OY - GROUND);
     ctx.fillStyle = pal().top;
     ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], 3);
+  }
+  // 낙하 함정(구덩이): 경고색 대각 줄무늬로 표시해 파란 계열 기믹과 헷갈리지 않게 함
+  for (const g of gaps) {
+    const gx0 = g[0] - cam, gx1 = g[1] - cam, hazH = 10;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(gx0, GROUND, gx1 - gx0, hazH); ctx.clip();
+    ctx.fillStyle = "#1a0a06"; ctx.fillRect(gx0, GROUND, gx1 - gx0, hazH);
+    ctx.fillStyle = "#ff7a1a";
+    const stripe = 16;
+    for (let sx = gx0 - hazH; sx < gx1 + hazH; sx += stripe) {
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND + hazH); ctx.lineTo(sx + hazH, GROUND);
+      ctx.lineTo(sx + hazH + stripe / 2, GROUND); ctx.lineTo(sx + stripe / 2, GROUND + hazH);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
   }
   ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
   for (let x = -((cam % T) + T) % T; x < W; x += T) { ctx.beginPath(); ctx.moveTo(x, GROUND); ctx.lineTo(x, H - OY); ctx.stroke(); }
