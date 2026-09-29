@@ -18,14 +18,15 @@
 const cv = document.getElementById("c");
 const ctx = cv.getContext("2d");
 let W = 960, H = 540, OY = 0, PSX = 240, HUD = 0;   // 화면 크기는 가로/세로 모드에 따라 layout()에서 바뀜
-const T = 40, GROUND = 440;
-const ZOOM = 1.2;          // 게임 화면 확대 배율 (장애물·주사위를 크게 보이게, 판정은 그대로)
+const T = 48, GROUND = 440;   // 타일(장애물) 한 칸 크기: 40 → 48로 키움
+const K = T / 40;             // 타일 크기 배율: 점프·속도 등 물리값을 같이 늘려 칸 기준 난이도는 유지
+const ZOOM = 0.9;             // 게임 화면 배율 (살짝 축소해 앞을 더 멀리 보이게)
 
 // ---------- 물리 상수 ----------
-const BASE_SPEED = 608;     // px/s (스테이지별 배율 적용, 기존 468의 1.3배)
-const GRAV = 2600;
-const JUMP_V = 720;
-const PAD_V = 1200;
+const BASE_SPEED = 608 * K;     // px/s (스테이지별 배율 적용)
+const GRAV = 2600 * K;
+const JUMP_V = 720 * K;
+const PAD_V = 1200 * K;
 const S = 30;               // 플레이어 히트박스
 const FLY_TOP = GROUND - 8 * T;
 
@@ -870,8 +871,8 @@ function step(dt) {
       if (P.y + S >= GROUND && prevBottom <= GROUND + 2 && !inGap()) { P.y = GROUND - S; P.vy = 0; P.grounded = true; }
     } else if (P.y <= FLY_TOP) { P.y = FLY_TOP; P.vy = 0; P.grounded = true; }
   } else {
-    P.vy += (holding ? -1900 : 1500) * dt;
-    P.vy = Math.max(-420, Math.min(420, P.vy));
+    P.vy += (holding ? -1900 : 1500) * K * dt;
+    P.vy = Math.max(-420 * K, Math.min(420 * K, P.vy));
     P.y += P.vy * dt;
     if (P.y < FLY_TOP) { P.y = FLY_TOP; P.vy = 0; }
     if (P.y + S > GROUND) { P.y = GROUND - S; P.vy = 0; }
@@ -901,7 +902,7 @@ function step(dt) {
     if (!sl) continue;
     for (const sp of sl) {
       const sx = sp.x * T, sy = GROUND - (sp.y + 1) * T;
-      if (overlap(P.x, P.y, S, S, sx + 13, sp.down ? sy : sy + 16, 14, 24)) return die();
+      if (overlap(P.x, P.y, S, S, sx + 13 * K, sp.down ? sy : sy + 16 * K, 14 * K, 24 * K)) return die();
     }
   }
   // 패드
@@ -961,7 +962,7 @@ function drawBackground(cam) {
 }
 
 function drawGround(cam, noGaps) {
-  const x0 = cam, x1 = cam + W;
+  const x0 = cam, x1 = cam + W / ZOOM;
   let cur = x0;
   const gaps = noGaps ? [] : LV.gaps.map(g => [g[0] * T, g[1] * T]).filter(g => g[1] > x0 && g[0] < x1).sort((a, b) => a[0] - b[0]);
   const segs = [];
@@ -969,7 +970,7 @@ function drawGround(cam, noGaps) {
   if (cur < x1) segs.push([cur, x1]);
   for (const s of segs) {
     ctx.fillStyle = pal().ground;
-    ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], H - OY - GROUND);
+    ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], H);
     ctx.fillStyle = pal().top;
     ctx.fillRect(s[0] - cam, GROUND, s[1] - s[0], 3);
   }
@@ -990,7 +991,7 @@ function drawGround(cam, noGaps) {
     ctx.restore();
   }
   ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
-  for (let x = -((cam % T) + T) % T; x < W; x += T) { ctx.beginPath(); ctx.moveTo(x, GROUND); ctx.lineTo(x, H - OY); ctx.stroke(); }
+  for (let x = -((cam % T) + T) % T; x < W / ZOOM; x += T) { ctx.beginPath(); ctx.moveTo(x, GROUND); ctx.lineTo(x, GROUND + H); ctx.stroke(); }
 }
 
 function drawBlock(x, y) {
@@ -1067,14 +1068,14 @@ function text(s, x, y, size, color = "#fff", align = "center") {
 function drawWorld(cam) {
   for (const r of LV.ceil) {
     const x0 = r[0] * T - cam, x1 = r[1] * T - cam;
-    if (x1 < 0 || x0 > W) continue;
+    if (x1 < 0 || x0 > W / ZOOM) continue;
     ctx.fillStyle = pal().ground;
-    ctx.fillRect(x0, -OY, x1 - x0, FLY_TOP + OY);
+    ctx.fillRect(x0, -H, x1 - x0, FLY_TOP + H);
     ctx.fillStyle = pal().top;
     ctx.fillRect(x0, FLY_TOP - 3, x1 - x0, 3);
   }
   drawGround(cam);
-  const inView = x => x * T - cam > -T && x * T - cam < W;
+  const inView = x => x * T - cam > -T && x * T - cam < W / ZOOM;
   for (const b of LV.blocks) if (inView(b.x)) drawBlock(b.x * T - cam, GROUND - (b.y + 1) * T);
   for (const s of LV.spikes) if (inView(s.x)) drawSpike(s.x * T - cam, GROUND - (s.y + 1) * T, s.down);
   for (const d of LV.pads) if (inView(d.x)) {
@@ -1084,10 +1085,10 @@ function drawWorld(cam) {
   for (const p of LV.portals) if (inView(p.x)) {
     const x = p.x * T - cam;
     ctx.strokeStyle = p.color; ctx.lineWidth = 5; ctx.shadowColor = p.color; ctx.shadowBlur = 16;
-    ctx.beginPath(); ctx.ellipse(x, GROUND - 160, 14, 80, 0, 0, 7); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.ellipse(x, GROUND - 4 * T, 14, 2 * T, 0, 0, 7); ctx.stroke(); ctx.shadowBlur = 0;
   }
   const ex = LV.end * T - cam;
-  if (ex > -50 && ex < W) for (let i = 0; i < 12; i++) { ctx.fillStyle = i % 2 ? "#fff" : "#111"; ctx.fillRect(ex, GROUND - (i + 1) * 40, 20, 40); }
+  if (ex > -50 && ex < W / ZOOM) for (let i = 0; i < 12; i++) { ctx.fillStyle = i % 2 ? "#fff" : "#111"; ctx.fillRect(ex, GROUND - (i + 1) * 40, 20, 40); }
 }
 
 function draw() {
