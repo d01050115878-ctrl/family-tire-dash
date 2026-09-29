@@ -21,7 +21,7 @@ let W = 960, H = 540, OY = 0, PSX = 240, HUD = 0;   // 화면 크기는 가로/�
 const T = 40, GROUND = 440;
 
 // ---------- 물리 상수 ----------
-const BASE_SPEED = 468;     // px/s (스테이지별 배율 적용, 기존 360의 1.3배)
+const BASE_SPEED = 608;     // px/s (스테이지별 배율 적용, 기존 468의 1.3배)
 const GRAV = 2600;
 const JUMP_V = 720;
 const PAD_V = 1200;
@@ -67,28 +67,28 @@ function makeLevel(meta, build) {
 
 const HAND = {
   // 1라운드: 초원 — 입문
-  1: makeLevel({ name: "주사위 초원", desc: "기본기 익히기", stars: 1, hue: 200, speed: 1.0, end: 196 }, a => {
-    a.spike(14); a.spike(20); a.spike(21); a.spike(28); a.spike(29); a.spike(30);
-    for (let x = 36; x <= 37; x++) a.column(x, 1);
-    for (let x = 38; x <= 39; x++) a.column(x, 2);
-    a.spike(51); a.spike(52);
-    a.gap(58, 61); a.spike(65);
-    a.pad(68); a.gap(70, 76);
+  1: makeLevel({ name: "주사위 초원", desc: "기본기 익히기", stars: 1, hue: 200, speed: 1.0, end: 318 }, a => {
+    a.spike(22); a.spike(32); a.spike(33); a.spike(45); a.spike(46); a.spike(47);
+    for (let x = 58; x <= 59; x++) a.column(x, 1);
+    for (let x = 60; x <= 61; x++) a.column(x, 2);
     a.spike(80); a.spike(81);
-    a.fly(88);
-    a.column(96, 4); a.column(97, 4);
-    a.hang(106, 4); a.hang(107, 4);
-    a.column(116, 3);
-    a.hang(122, 3); a.hang(123, 3);
-    a.column(128, 4);
-    a.roll(134);
-    a.spike(146); a.spike(147);
-    a.block(153); a.block(154); a.block(155); a.spike(155, 1);
-    a.spike(163);
-    a.gap(170, 173);
-    a.column(177, 1); a.column(178, 1); a.column(179, 1);
-    a.spike(183); a.spike(184); a.spike(185);
-    a.spike(190);
+    a.gap(93, 96); a.spike(104);
+    a.pad(112); a.gap(114, 120);
+    a.spike(130); a.spike(131);
+    a.fly(142);
+    a.column(155, 4); a.column(156, 4);
+    a.hang(172, 4); a.hang(173, 4);
+    a.column(188, 3);
+    a.hang(199, 3); a.hang(200, 3);
+    a.column(210, 4);
+    a.roll(220);
+    a.spike(236); a.spike(237);
+    a.block(248); a.block(249); a.block(250); a.spike(250, 1);
+    a.spike(263);
+    a.gap(275, 278);
+    a.column(286, 1); a.column(287, 1); a.column(288, 1);
+    a.spike(297); a.spike(298); a.spike(299);
+    a.spike(308);
   }),
 };
 
@@ -112,12 +112,14 @@ function genLevel(r, seed) {
   // 주사위 속도: 1~20라운드 1.05 → 1.45, 21~30라운드 → 1.7, 31~50라운드는 완만하게 → 1.9
   const s = Math.round((r <= 20 ? 1.05 + 0.4 * (r - 1) / 19 : r <= 30 ? 1.45 + 0.25 * (r - 20) / 10 : 1.7 + 0.2 * (r - 30) / 20) * 100) / 100;
   const d = r <= 8 ? 1 : r <= 16 ? 2 : r <= 26 ? 3 : r <= 38 ? 4 : 5;   // 난이도 단계 (초반 라운드가 너무 가파르지 않도록 완만하게 조정)
-  const target = r <= 30 ? 380 + r * 15 : 830 + (r - 30) * 12;          // 길이: 약 400 ~ 1070 타일
+  const target = Math.round((r <= 30 ? 380 + r * 15 : 830 + (r - 30) * 12) * 1.15);   // 길이: 약 450 ~ 1230 타일 (주사위가 빨라진 만큼 늘림)
   let mul = 1;                                                        // 속도 포털로 바뀐 현재 속도 배율
   const cs = () => s * mul;
-  // 장애물 사이 간격: 20라운드까지는 기존 방식, 21라운드부터는 속도에 비례해 '반응 시간'이 일정하게 확보되도록 넓힘
-  const gapT = r <= 30 ? 6.8 : 9;
-  const lead = () => (r <= 20 ? Math.max(Math.ceil(4.4 * cs()), Math.ceil(6.6 * cs()) - d) + (d <= 2 ? 2 : 0) : Math.ceil(gapT * cs())) + rnd(3);
+  const tps = m => BASE_SPEED * m / T;                                 // 배율 m 에서 초당 이동 타일 수
+  // 장애물 사이 간격(초): 속도와 무관하게 '반응 시간'이 확보되도록 시간 기준으로 계산
+  // 1라운드 1.1초 → 30라운드 0.8초로 서서히 줄고, 31라운드 이후는 0.95초
+  const gapSec = r <= 30 ? 1.1 - 0.3 * (r - 1) / 29 : 0.95;
+  const lead = () => Math.ceil(gapSec * tps(cs())) + rnd(3);
   let prevC = null;                                                   // 비행 구간에서 직전 통로 중심 (행 단위)
   const used = new Set();
 
@@ -182,20 +184,20 @@ function genLevel(r, seed) {
   };
   const fly = (a, x) => {
     a.fly(x); used.add("fly"); prevC = null;
-    let cx = x + 9 + rnd(3);
+    let cx = x + Math.ceil(0.6 * tps(s)) + rnd(3);
     const count = 4 + rnd(3) + d;   // 화면 속 우주선 구간처럼 이어지는 길이 늘림
     for (let i = 0; i < count; i++) {
       cx = tunnel(a, cx);
-      cx += Math.ceil((r > 30 ? 9.5 : 8) * Math.max(1, cs())) + Math.max(0, 3 - d) + rnd(2);
+      cx += Math.ceil(((r > 30 ? 1.0 : 0.95) + Math.max(0, 3 - d) * 0.08) * tps(Math.max(1, cs()))) + rnd(2);
     }
     a.roll(cx);
-    return cx + Math.ceil(4 * s);
+    return cx + Math.ceil(0.35 * tps(s));
   };
 
   // ----- 중력 반전 구간 (천장 주행) -----
   const flip = (a, x) => {
     a.flip(x); used.add("flip");
-    let cx = x + Math.ceil(10 * Math.max(1, cs()));
+    let cx = x + Math.ceil(0.85 * tps(Math.max(1, cs())));
     const kinds = d === 1 ? ["hs1", "hs2", "hb1", "hpair"]
       : d === 2 ? ["hs1", "hs2", "hs3", "hb1", "hb2", "hpair", "hstair"]
       : ["hs2", "hs3", "hb2", "hpair", "hstair", "hchain", "hchain"];
@@ -209,10 +211,10 @@ function genLevel(r, seed) {
       else if (kind === "hb2") { a.hang(cx, 2); }
       else if (kind === "hstair") { a.hang(cx, 1); a.hang(cx + 1, 2); a.hang(cx + 2, 2); a.hang(cx + 3, 1); w = 4; }
       else if (kind === "hchain") { for (let j = 0; j < 4; j++) a.hang(cx + j, 1); a.hangSpike(cx + 3, 1); w = 4; }
-      cx += w + (r > 30 ? lead() : Math.ceil(6.6 * Math.max(1, cs())) - d + rnd(3));
+      cx += w + lead();
     }
     a.norm(cx);
-    return cx + Math.ceil(5 * s);
+    return cx + Math.ceil(0.45 * tps(s));
   };
 
   // ----- 속도 구간: 빨간 포털(빨라짐) / 파란 포털(느려짐) -----
@@ -223,7 +225,7 @@ function genLevel(r, seed) {
     const n = 4 + rnd(3);
     for (let i = 0; i < n; i++) { cx += lead(); cx = ground(a, cx, pick(simple)); }
     cx += lead(); a.speed(cx, 1); mul = 1;
-    return cx + Math.ceil(3 * s);
+    return cx + Math.ceil(0.25 * tps(s));
   };
 
   const lv = makeLevel({ name: "", hue: 0, speed: s, end: 0 }, a => {
