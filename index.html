@@ -49,7 +49,7 @@ function makeLevel(meta, build) {
     spike:     (x, y = 0) => L.spikes.push({ x, y, down: false }),
     hangSpike: (x, n = 0) => L.spikes.push({ x, y: 7 - n, down: true }),   // 천장에 매달린 스파이크
     mini:      x => L.spikes.push({ x, y: 0, down: false, small: true }),      // 낮은 미니 스파이크
-    saw:       (x, y, r) => L.saws.push({ x, y, r }),                          // 회전 톱니 (중심 좌표·반지름, 타일 단위)
+    saw:       (x, y, r, amp = 0, per = 1, ph = 0) => L.saws.push({ x, y, r, amp, per, ph }),   // 회전 톱니 (중심 좌표·반지름, 타일 단위). amp > 0 이면 per 초 주기로 위아래로 움직임
     block:     (x, y = 0) => L.blocks.push({ x, y }),
     column:    (x, h) => { for (let i = 0; i < h; i++) L.blocks.push({ x, y: i }); },
     hang:      (x, n) => { for (let i = 0; i < n; i++) L.blocks.push({ x, y: 7 - i }); },
@@ -109,9 +109,9 @@ function genLevel(r, seed, bpm) {
   const tps = m => BASE_SPEED * m / T;                                 // 배율 m 에서 초당 이동 타일 수
   // 장애물 사이 간격(초): 속도와 무관하게 '반응 시간'이 확보되도록 시간 기준으로 계산
   // 1라운드 1.35초 → 30라운드 1.0초로 서서히 줄고, 31라운드 이후는 1.15초
-  const gapSec = (r <= 30 ? 1.35 - 0.35 * (r - 1) / 29 : 1.15) / DENSITY;
+  const gapSec = r <= 30 ? 0.55 - 0.05 * (r - 1) / 29 : 0.6;   // 1라운드 0.55초 → 30라운드 0.5초, 이후 0.6초 (빈 직선 구간이 길지 않게)
   const many = n => Math.round(n * DENSITY);                           // 특수 구간 안의 장애물 수도 같은 비율로 늘림
-  const lead = () => Math.ceil(gapSec * tps(cs())) + rnd(3);
+  const lead = () => Math.ceil(gapSec * tps(cs())) + rnd(2);
   // 박자 맞춤: 장애물이 음악의 박(beat)에 도착하도록 위치를 다음 박으로 민다 (속도 포털 구간도 시간으로 환산)
   const beatSec = 60 / bpm;
   let xRef = 0, tRef = 0;
@@ -146,7 +146,7 @@ function genLevel(r, seed, bpm) {
       case "padSpikes": a.pad(x); for (let i = 3; i <= 6; i++) a.spike(x + i); return x + 7;
       case "pillarhop": a.column(x, 2); a.spike(x + 3); a.column(x + 6, 2); return x + 7;
       case "underbridge": for (let i = 0; i < 5; i++) a.hang(x + i, 4); a.spike(x + 2); return x + 5;
-      // 공중 발판: 계단에 올라 구덩이(용암/괴물) 위의 떠 있는 발판을 건너뜀 (폭·간격은 점프 거리에 비례)
+      // 공중 발판: 계단에 올라 가시 구덩이 위의 떠 있는 발판을 건너뜀 (폭·간격은 점프 거리에 비례)
       case "platforms": {
         const jl = AIR * tps(cs()), w = Math.max(3, Math.ceil(jl * 0.55)), g = Math.max(2, Math.round(jl * 0.3)), n = 2 + rnd(2);
         for (let i = 0; i < w; i++) a.column(x + i, 1);
@@ -156,11 +156,17 @@ function genLevel(r, seed, bpm) {
         return e;
       }
       // 점프 링: 한 번의 점프로는 못 넘는 긴 스파이크/구덩이 위에서 링을 눌러 2단 점프
-      // orb3 / orb4: 링이 2~3개 이어져 3단·4단 점프로 긴 용암 구덩이를 건넘 (링 간격 = 점프 한 번 거리)
-      case "orbSpikes": case "orbPit": case "orb3": case "orb4": {
-        const jl = AIR * tps(cs()), m = kind === "orb3" ? 2 : kind === "orb4" ? 3 : 1, n = Math.ceil(jl * (0.45 + m));
+      // orb3 / orb4: 링이 2~3개 이어져 3단·4단 점프로 긴 가시 구덩이를 건넘 (링 간격 = 점프 한 번 거리)
+      // orbTrap2 / orbTrap3: 마지막에 링이 하나 더 있지만 그 위에 톱니가 있어, 누르지 않고 그냥 내려와야 하는 함정
+      case "orbSpikes": case "orbPit": case "orb3": case "orb4": case "orbTrap2": case "orbTrap3": {
+        const jl = AIR * tps(cs()), m = kind === "orb3" || kind === "orbTrap3" ? 2 : kind === "orb4" ? 3 : 1, n = Math.ceil(jl * (0.45 + m));
         if (kind === "orbSpikes") for (let i = 0; i < n; i++) a.spike(x + i); else a.gap(x, x + n);
         for (let i = 0; i < m; i++) a.orb(x - 0.5 + jl * (0.75 + i), 1.8);
+        if (kind === "orbTrap2" || kind === "orbTrap3") {
+          const bx = x - 0.5 + jl * (0.75 + m);   // 미끼 링: 착지 직전에 지나가는 자리
+          a.orb(bx, 1.8); a.saw(bx + jl * 0.35, 4.7, 1.2); a.saw(bx + jl * 0.7, 4.7, 1.2);
+          return Math.ceil(bx + jl * 0.7 + 2.4);
+        }
         return x + n;
       }
       // 오르막 발판: 한 칸씩 높아지는 떠 있는 발판을 타고 올라갔다가 끝에서 뛰어내림
@@ -190,6 +196,8 @@ function genLevel(r, seed, bpm) {
       }
       // 톱니: 바닥에 반쯤 박힌 회전 톱니 (하나 / 둘이 붙은 넓은 톱니)
       case "saw": a.saw(x + 1.1, 0, 1.1); return x + 3;
+      // 위아래로 오르내리는 톱니: 내려와 있으면 뛰어넘고, 올라가 있으면 밑으로 지나감 (두 박자에 한 번 왕복)
+      case "sawMove": a.saw(x + 1.1, 1.9, 1.0, 1.6, beatSec * 2, R() * 6.28); return x + 3;
       case "sawWide": a.saw(x + 1.1, 0, 1.1); a.saw(x + 3.1, 0, 1.1); return x + 5;
       // 스파이크를 넘은 뒤 머리 위 톱니: 착지하자마자 또 뛰면 톱니에 닿음
       case "spikeSaw": {
@@ -222,17 +230,21 @@ function genLevel(r, seed, bpm) {
     5: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padSpikes", "padSpikes", "underbridge", "padgap", "platforms", "platforms", "orbSpikes", "orbPit"],
   };
   for (const k in pools) {
-    pools[k].push("platforms", "orbSpikes", k > 1 ? "orbPit" : "orbSpikes", "stairsUp", "stairsUp", "saw", "saw", "miniSpikes", "miniSpikes");   // 발판·링·톱니류가 자주 나오도록 비중을 높임
+    pools[k].push("platforms", "orbSpikes", k > 1 ? "orbPit" : "orbSpikes", "stairsUp", "stairsUp", "saw", "sawMove", "sawMove", "sawMove", "miniSpikes", "miniSpikes");   // 발판·링·톱니류가 자주 나오도록 비중을 높임
     pools[k].push("orb3", "orb3", k > 1 ? "orb4" : "orb3", k > 1 ? "orb4" : "orb3");   // 3단·4단 점프 링
+    pools[k].push("orbTrap2", "orbTrap2", k > 1 ? "orbTrap3" : "orbTrap2");   // 누르면 안 되는 함정 링
     pools[k].push("stepsUp", "stepsUp", "stepsUpDown", "stepsUpDown", "stepsDown", "stepsDown");   // 계단식 오르막·내리막
     if (k > 1) pools[k].push("sawWide", "spikeSaw", "spikeSaw", "padTower", "padTower");
   }
   // zone() 은 최고 속도(1.3배 포털 x 후반 라운드 가속)가 겹칠 수 있어 검증된 장애물만 사용
-  const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep", "platforms", "orbSpikes", "saw", "miniSpikes"];
+  const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep", "platforms", "orbSpikes", "saw", "sawMove", "miniSpikes"];
 
   // ----- 비행 구간: 바닥 또는 천장 중 한쪽에만 장애물 (위아래 동시에 막는 통로는 만들지 않음) -----
   const tunnel = (a, cx) => {
-    if (R() < 0.3) { a.saw(cx + 1.1, 3 + rnd(3), 1.1); prevC = null; return cx + 3; }   // 공중에 뜬 톱니: 위나 아래로 피해 감
+    if (R() < 0.4) {   // 공중에 뜬 톱니: 위나 아래로 피해 감 (절반은 위아래로 움직임)
+      if (R() < 0.5) a.saw(cx + 1.1, 4, 1.1, 1.6, beatSec * 2, R() * 6.28); else a.saw(cx + 1.1, 3 + rnd(3), 1.1);
+      prevC = null; return cx + 3;
+    }
     const maxSum = [0, 3, 4, 5, 5, 5][d];
     let h = 0, n = 0, c = 0;
     for (let t = 0; t < 12; t++) {
@@ -252,20 +264,21 @@ function genLevel(r, seed, bpm) {
   };
   const fly = (a, x) => {
     a.fly(x); used.add("fly"); prevC = null;
-    let cx = x + Math.ceil(0.6 * tps(s)) + rnd(3);
-    const count = 2 + rnd(2) + (d >= 4 ? 1 : 0);   // 비행 구간은 짧게 (장애물 2~4개, 밀도 배율 미적용)
+    let cx = x + Math.ceil(0.45 * tps(s)) + rnd(2);
+    const count = 2 + (d >= 4 ? 1 : 0);   // 비행 구간은 아주 짧게 (장애물 2~3개, 밀도 배율 미적용)
     for (let i = 0; i < count; i++) {
+      if (i) cx += Math.ceil(0.8 * tps(Math.max(1, cs()))) + rnd(2);
       cx = tunnel(a, cx);
-      cx += Math.ceil(((r > 30 ? 1.0 : 0.95) + Math.max(0, 3 - d) * 0.08) * tps(Math.max(1, cs()))) + rnd(2);
     }
+    cx += Math.ceil(0.5 * tps(s));
     a.roll(cx);
-    return cx + Math.ceil(0.35 * tps(s));
+    return cx + Math.ceil(0.15 * tps(s));
   };
 
   // ----- 중력 반전 구간 (천장 주행) -----
   const flip = (a, x) => {
     a.flip(x); used.add("flip");
-    let cx = x + Math.ceil(0.85 * tps(Math.max(1, cs())));
+    let cx = x + Math.ceil(0.65 * tps(Math.max(1, cs())));
     const kinds = d === 1 ? ["hs1", "hs2", "hb1", "hpair"]
       : d === 2 ? ["hs1", "hs2", "hs3", "hb1", "hb2", "hpair", "hstair"]
       : ["hs2", "hs3", "hb2", "hpair", "hstair", "hchain", "hchain"];
@@ -282,7 +295,7 @@ function genLevel(r, seed, bpm) {
       cx += w + lead();
     }
     a.norm(cx);
-    return cx + Math.ceil(0.45 * tps(s));
+    return cx + Math.ceil(0.2 * tps(s));
   };
 
   // ----- 속도 구간: 빨간 포털(빨라짐) / 파란 포털(느려짐) -----
@@ -293,7 +306,7 @@ function genLevel(r, seed, bpm) {
     const n = many(3 + rnd(2));
     for (let i = 0; i < n; i++) { cx = snap(cx + lead()); cx = ground(a, cx, pick(simple)); }
     cx += lead(); a.speed(cx, 1); setMul(cx, 1);
-    return cx + Math.ceil(0.25 * tps(s));
+    return cx + Math.ceil(0.1 * tps(s));
   };
 
   const lv = makeLevel({ name: "", hue: 0, speed: s, end: 0 }, a => {
@@ -306,7 +319,7 @@ function genLevel(r, seed, bpm) {
       last = t; sp.push({ f: (i + 0.5) / nSp + (R() - 0.5) * 0.06, t });
     }
     const fns = { fly, flip, zone };
-    let x = 16, since = 2;   // since: 직전 특수 구간 이후 놓인 지상 장애물 수 (특수 구간 사이에 최소 2개는 지상 장애물)
+    let x = 10, since = 2;   // since: 직전 특수 구간 이후 놓인 지상 장애물 수 (특수 구간 사이에 최소 2개는 지상 장애물)
     while (x < target) {
       x = snap(x + lead());
       const frac = (x - 16) / (target - 16);
@@ -336,7 +349,7 @@ const NAMES = ["네온 러시", "비트 점프", "폴라 나이트", "드라이 
 const TIER = ["", " II", " III", " IV", " V"];
 
 // 봇 검증으로 확정한 라운드별 시드 (오프라인 검증: 전 라운드 클리어 가능)
-const SEEDS = [1,3,5,2,3,1,3,3,10,23,9,43,25,1,9,12,20,27,10,1,8,15,60,72,1,48,97,20,4,53,6,84,7,9,16,2,13,1,17,6,1,13,2,8,14,2,18,62,3,4];
+const SEEDS = [5,1,7,3,1,3,1,8,11,2,6,10,60,50,10,9,19,95,32,14,39,53,22,19,12,5,1,8,85,18,4,39,10,38,10,28,6,1,20,134,34,35,52,38,10,14,27,12,3,13];
 const LEVELS = SEEDS.map((sd, i) => {
   const lv = genLevel(i + 1, sd, SONGS[i % SONGS.length].bpm);
   lv.stars = 1 + Math.min(4, Math.floor(i / 10));
@@ -506,7 +519,9 @@ let attempts = 1, deadTimer = 0, particles = [], holding = false;
 let trail = [];   // 큐브 뒤에 남는 잔상(그림자) 기록
 const TRAIL_LEN = 7;
 const bests = LEVELS.map((_, i) => { try { return +localStorage.getItem("tiredash-best-" + i) || 0; } catch (e) { return 0; } });
-let nextPortal = 0, shake = 0, tAnim = 0, deathHot = false;
+let runT = 0;   // 이번 시도에서 흐른 시간 (움직이는 장애물의 기준 시각 — 매 시도 같은 타이밍)
+const sawY = w => w.amp ? w.y + w.amp * Math.sin(runT * 6.2832 / w.per + w.ph) : w.y;
+let nextPortal = 0, shake = 0, tAnim = 0;
 const spd = () => BASE_SPEED * LV.speed * P.spd;
 
 function saveBest(pct) {
@@ -516,6 +531,7 @@ function saveBest(pct) {
 function reset() {
   P.x = 0; P.y = GROUND - S; P.vy = 0; P.grounded = true; P.mode = "roll"; P.grav = 1; P.angle = 0; P.spd = 1;
   for (const o of LV.orbs) o.used = false;
+  runT = 0;
   nextPortal = 0; particles = []; trail = []; state = "play";
   Snd.restart();
 }
@@ -531,7 +547,6 @@ function goMenu() { state = "menu"; sel = lvIdx; P.x = 0; P.y = GROUND - S; P.mo
 function die() {
   if (state !== "play") return;
   state = "dead"; deadTimer = 0.75; shake = 0.25; Snd.death();
-  deathHot = P.y + S > GROUND + 4;   // 구덩이에 빠져 죽으면 파편이 불꽃색
   saveBest(Math.min(99, Math.floor(P.x / (LV.end * T) * 100)));
   for (let i = 0; i < 26; i++) {
     const a = Math.random() * Math.PI * 2, v = 120 + Math.random() * 380;
@@ -604,13 +619,14 @@ layout();
 
 // ---------- 업데이트 ----------
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
-const PIT_D = 34;           // 구덩이 안의 용암·괴물까지의 깊이 (여기 닿으면 죽음)
+const PIT_D = 34;           // 구덩이 안의 가시까지의 깊이 (여기 닿으면 죽음)
 const SAW_HIT = 0.85;       // 톱니 판정 반경 비율
 const ORB_R = 0.7 * T;      // 점프 링 판정 반경 (보이는 것보다 넉넉함)
 const inGap = () => LV.gaps.some(g => P.x >= g[0] * T && P.x + S <= g[1] * T);
 
 function step(dt) {
   const prevTop = P.y, prevBottom = P.y + S;
+  runT += dt;
   const dir = P.grav;
   P.x += spd() * dt;
 
@@ -671,7 +687,7 @@ function step(dt) {
   }
   // 톱니 (원형 판정, 보이는 것보다 조금 작게)
   for (const w of LV.saws) {
-    const cx = w.x * T, cy = GROUND - w.y * T, rr = w.r * T * SAW_HIT;
+    const cx = w.x * T, cy = GROUND - sawY(w) * T, rr = w.r * T * SAW_HIT;
     if (cx + rr < P.x || cx - rr > P.x + S) continue;
     const nx = Math.max(P.x, Math.min(cx, P.x + S)), ny = Math.max(P.y, Math.min(cy, P.y + S));
     if ((nx - cx) * (nx - cx) + (ny - cy) * (ny - cy) < rr * rr) return die();
@@ -736,54 +752,27 @@ function drawBackground(cam) {
   fr(0, gy, W, H - gy, `hsl(${h},90%,9%)`);
 }
 
-// 구덩이 안: 넓은 구덩이는 끓는 용암, 좁은 구덩이는 용암 또는 입을 벌린 괴물 (떨어지면 끝)
+// 구덩이(함정): 새까만 구멍 바닥에 흰 테두리의 검은 가시가 빽빽하게 솟아 있음 — 어떤 배경색에서도 또렷하게 보임
 function drawPit(x0, x1, key) {
-  const w = x1 - x0, k = Math.round(key);
+  const w = x1 - x0, k = Math.round(key), base = GROUND + 46;
   ctx.save();
-  ctx.beginPath(); ctx.rect(x0, GROUND - 90, w, H + 90); ctx.clip();
-  if (w > 7 * T || hs(k) < 0.5) {
-    // 용암: 위로 번지는 열기 + 출렁이는 표면 + 터지는 기포 + 튀어 오르는 불티
-    let gr = ctx.createLinearGradient(0, GROUND - 90, 0, GROUND + 20);
-    gr.addColorStop(0, "rgba(255,110,20,0)"); gr.addColorStop(1, "rgba(255,110,20,0.4)");
-    ctx.fillStyle = gr; ctx.fillRect(x0, GROUND - 90, w, 110);
-    gr = ctx.createLinearGradient(0, GROUND + 12, 0, GROUND + 130);
-    gr.addColorStop(0, "#ffe066"); gr.addColorStop(0.25, "#ff7a1a"); gr.addColorStop(1, "#8a1200");
-    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(x0, GROUND + H);
-    for (let x = x0; x <= x1 + 8; x += 8) ctx.lineTo(x, GROUND + 20 + Math.sin((x + key) / 13 + tAnim * 3) * 4 + Math.sin((x + key) / 5 - tAnim * 2) * 1.5);
-    ctx.lineTo(x1 + 8, GROUND + H); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = "#fff3a0"; ctx.lineWidth = 2; ctx.beginPath();
-    for (let x = x0; x <= x1 + 8; x += 8) ctx.lineTo(x, GROUND + 20 + Math.sin((x + key) / 13 + tAnim * 3) * 4 + Math.sin((x + key) / 5 - tAnim * 2) * 1.5);
-    ctx.stroke();
-    const n = Math.max(2, Math.round(w / 40));
+  ctx.beginPath(); ctx.rect(x0, GROUND, w, H); ctx.clip();
+  ctx.fillStyle = "#04040a"; ctx.fillRect(x0, GROUND, w, H);
+  // 가시: 높이가 들쭉날쭉한 삼각형 (큰 가시 사이사이에 작은 가시)
+  ctx.fillStyle = "#000"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.lineJoin = "miter";
+  const tw = 16, n = Math.ceil(w / tw);
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.beginPath();
     for (let i = 0; i < n; i++) {
-      const bx = x0 + 10 + hs(k * 7 + i) * (w - 20), ph = (tAnim * (0.5 + hs(k + i * 3) * 0.6) + hs(i + k)) % 1;
-      ctx.globalAlpha = 1 - ph; ctx.strokeStyle = "#ffe066"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(bx, GROUND + 30 - ph * 8, 2 + ph * 6, 0, 7); ctx.stroke();
-      const eh = (tAnim * (0.7 + hs(k * 3 + i) * 0.5) + hs(i * 5 + k)) % 1;   // 불티
-      ctx.globalAlpha = 1 - eh; ctx.fillStyle = "#ffd447";
-      ctx.fillRect(x0 + 6 + hs(k * 11 + i) * (w - 12) + Math.sin(tAnim * 4 + i) * 4, GROUND + 14 - eh * 80, 4, 4);
+      const bx = x0 + i * tw + (pass ? 0 : tw / 2), h = pass ? 22 + hs(k + i * 3) * 14 : 10 + hs(k + i * 7) * 8;
+      ctx.moveTo(bx, base); ctx.lineTo(bx + tw / 2, base - h); ctx.lineTo(bx + tw, base);
     }
-    ctx.globalAlpha = 1;
-  } else {
-    // 괴물: 구덩이 속에서 입을 쩍 벌리고 기다림 (턱이 오르내리며 이빨이 딱딱거림)
-    const bob = Math.sin(tAnim * 5 + k) * 5, top = GROUND + 22 + bob, cx = (x0 + x1) / 2;
-    ctx.fillStyle = "#3d0f5c"; ctx.fillRect(x0, top, w, H);
-    ctx.fillStyle = "#7a0a1e"; ctx.fillRect(x0 + 6, top, w - 12, 26);                      // 입속
-    ctx.fillStyle = "#ff5c7a"; ctx.beginPath(); ctx.ellipse(cx, top + 26, w * 0.22, 9, 0, Math.PI, 0); ctx.fill();   // 혀
-    ctx.fillStyle = "#fff";
-    const tw = 14, tn = Math.max(2, Math.floor((w - 8) / tw)), tx0 = cx - tn * tw / 2;
-    for (let i = 0; i < tn; i++) { ctx.beginPath(); ctx.moveTo(tx0 + i * tw, top + 4); ctx.lineTo(tx0 + i * tw + tw / 2, top - 15); ctx.lineTo(tx0 + (i + 1) * tw, top + 4); ctx.closePath(); ctx.fill(); }
-    ctx.fillStyle = "#3d0f5c"; ctx.fillRect(x0, top + 26, w, H);                              // 아래턱·몸통
-    const blink = (tAnim * 0.7 + hs(k + 3)) % 1 < 0.06 ? 0.15 : 1;
-    for (const d of [-1, 1]) {
-      const ex = cx + d * Math.min(w * 0.24, 44), ey = top + 46;
-      ctx.shadowColor = "#ffe14d"; ctx.shadowBlur = 12; ctx.fillStyle = "#ffe14d";
-      ctx.beginPath(); ctx.ellipse(ex, ey, 9, 9 * blink, 0, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
-      ctx.fillStyle = "#12000a"; ctx.beginPath(); ctx.ellipse(ex, ey, 2.5, 7 * blink, 0, 0, 7); ctx.fill();
-    }
+    ctx.fill(); ctx.stroke();
   }
-  // 구덩이 벽 그림자
-  ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(x0, GROUND, 5, H); ctx.fillRect(x1 - 5, GROUND, 5, H);
+  ctx.fillStyle = "#000"; ctx.fillRect(x0, base, w, H);
+  ctx.fillStyle = "#fff"; ctx.fillRect(x0, base - 1, w, 2);
+  // 구덩이 양쪽 벽의 흰 테두리
+  ctx.fillRect(x0, GROUND, 2, 46); ctx.fillRect(x1 - 2, GROUND, 2, 46);
   ctx.restore();
 }
 
@@ -882,7 +871,11 @@ function drawWorld(cam) {
     ctx.fillStyle = pal().top;
     ctx.fillRect(x0, FLY_TOP - 3, x1 - x0, 3);
   }
-  for (const w of LV.saws) if ((w.x + w.r) * T - cam > 0 && (w.x - w.r) * T - cam < W / ZOOM) drawSaw(w.x * T - cam, GROUND - w.y * T, w.r * T);   // 바닥 톱니는 아래쪽 절반이 땅에 가려짐
+  for (const w of LV.saws) if ((w.x + w.r) * T - cam > 0 && (w.x - w.r) * T - cam < W / ZOOM) {
+    const wx = w.x * T - cam;
+    if (w.amp) { ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(wx, GROUND - (w.y - w.amp) * T); ctx.lineTo(wx, GROUND - (w.y + w.amp) * T); ctx.stroke(); ctx.setLineDash([]); }   // 움직이는 톱니의 레일
+    drawSaw(wx, GROUND - sawY(w) * T, w.r * T);
+  }   // 바닥 톱니는 아래쪽 절반이 땅에 가려짐
   drawGround(cam);
   const inView = x => x * T - cam > -T && x * T - cam < W / ZOOM;
   for (const b of LV.blocks) if (inView(b.x)) drawBlock(b.x * T - cam, GROUND - (b.y + 1) * T);
@@ -933,7 +926,7 @@ function draw() {
   }
   for (const p of particles) {
     ctx.globalAlpha = Math.max(0, p.life);
-    ctx.fillStyle = deathHot ? "#ff7a1a" : "#ffd447";
+    ctx.fillStyle = "#ffd447";
     ctx.fillRect(p.x - cam - p.r, p.y - p.r, p.r * 2, p.r * 2);
   }
   ctx.globalAlpha = 1;
