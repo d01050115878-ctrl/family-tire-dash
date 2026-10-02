@@ -29,10 +29,22 @@ const JUMP_V = 720 * K;
 const PAD_V = 1200 * K;
 const S = 30;               // 플레이어 히트박스
 const FLY_TOP = GROUND - 8 * T;
+const AIR = 2 * JUMP_V / GRAV;  // 점프 한 번의 체공 시간(초)
+
+// ---------- 곡 목록 (전부 오리지널 멜로디, 빠른 일렉트로 스타일) ----------
+// mel: 마디별 16분음표 16칸. 숫자 = 음계 음(7 = 한 옥타브 위), '-' = 앞 음 이어짐, '.' = 쉼
+const SONGS = [
+  { bpm: 160, root: 57, major: true,  prog: [0, 4, 5, 3], mel: ["4-.4.2.47-.4.2.0", "1-.1.6.14-.6.8-.", "2-.2.0.25-.7.9-.", "7-.5.3.57.8.9.8."] },
+  { bpm: 142, root: 52, major: false, prog: [0, 5, 2, 6], mel: ["0..0.2.4..4.2.0.", "5..5.7.9..7.5.4.", "2..2.4.6..4.6.7.", "6..6.8.64-3-2-1-"] },
+  { bpm: 175, root: 50, major: false, prog: [0, 0, 5, 6], mel: ["7.4.2.4.7.4.2.4.", "8.4.2.4.9.4.2.4.", "7.5.2.5.9.5.2.5.", "8.6.3.6.8-6-4-3-"] },
+  { bpm: 130, root: 53, major: false, prog: [0, 6, 5, 4], half: true, mel: ["0-..0.3-..2.0...", "6-..6.8-..6.4...", "5-..5.7-..9.7...", "4-..6.8-6-4-2-1-"] },
+  { bpm: 150, root: 55, major: true,  prog: [0, 3, 4, 0], mel: ["0.2.4.2.7-4-2-0.", "3.5.7.5.9-7-5-3.", "4.6.8.6.8-6-4-6.", "7-.7.4.27-..4-2-"] },
+  { bpm: 170, root: 54, major: false, prog: [0, 2, 6, 5], mel: ["4.4.4-2.0.2.4-..", "6.6.6-4.2.4.6-..", "8.8.8-6.3.6.8-..", "9.7.5.7.9-8-7-4-"] },
+];
 
 // ---------- 레벨 빌더 (모든 맵은 오리지널 설계, 타일 좌표) ----------
 function makeLevel(meta, build) {
-  const L = Object.assign({ spikes: [], blocks: [], pads: [], portals: [], gaps: [], ceil: [] }, meta);
+  const L = Object.assign({ spikes: [], blocks: [], pads: [], orbs: [], portals: [], gaps: [], ceil: [] }, meta);
   const api = {
     spike:     (x, y = 0) => L.spikes.push({ x, y, down: false }),
     hangSpike: (x, n = 0) => L.spikes.push({ x, y: 7 - n, down: true }),   // 천장에 매달린 스파이크
@@ -40,6 +52,7 @@ function makeLevel(meta, build) {
     column:    (x, h) => { for (let i = 0; i < h; i++) L.blocks.push({ x, y: i }); },
     hang:      (x, n) => { for (let i = 0; i < n; i++) L.blocks.push({ x, y: 7 - i }); },
     pad:       (x, y = 0) => L.pads.push({ x, y }),
+    orb:       (x, y) => L.orbs.push({ x, y, used: false }),               // 점프 링 (중심 좌표, 공중에서 누르면 한 번 더 점프)
     gap:       (a, b) => L.gaps.push([a, b]),
     fly:  x => L.portals.push({ x, mode: "fly", color: "#4df0ff" }),
     roll: x => L.portals.push({ x, mode: "roll", color: "#8dff6a" }),
@@ -67,34 +80,7 @@ function makeLevel(meta, build) {
   return L;
 }
 
-const HAND = {
-  // 1라운드: 초원 — 입문
-  1: makeLevel({ name: "주사위 초원", desc: "기본기 익히기", stars: 1, hue: 200, speed: 1.0, end: 318 }, a => {
-    a.spike(22); a.spike(32); a.spike(33); a.spike(45); a.spike(46); a.spike(47);
-    for (let x = 58; x <= 59; x++) a.column(x, 1);
-    for (let x = 60; x <= 61; x++) a.column(x, 2);
-    a.spike(80); a.spike(81);
-    a.gap(93, 96); a.spike(104);
-    a.pad(112); a.gap(114, 120);
-    a.spike(130); a.spike(131);
-    a.fly(142);
-    a.column(155, 4); a.column(156, 4);
-    a.hang(172, 4); a.hang(173, 4);
-    a.column(188, 3);
-    a.hang(199, 3); a.hang(200, 3);
-    a.column(210, 4);
-    a.roll(220);
-    a.spike(236); a.spike(237);
-    a.block(248); a.block(249); a.block(250); a.spike(250, 1);
-    a.spike(263);
-    a.gap(275, 278);
-    a.column(286, 1); a.column(287, 1); a.column(288, 1);
-    a.spike(297); a.spike(298); a.spike(299);
-    a.spike(308);
-  }),
-};
-
-// ---------- 30라운드: 난이도별 구간 조합 생성기 ----------
+// ---------- 라운드 생성기: 난이도별 구간 조합, 장애물은 곡의 박자에 맞춰 배치 ----------
 
 function mulberry(seed) {
   let a = seed >>> 0;
@@ -106,7 +92,7 @@ function mulberry(seed) {
   };
 }
 
-function genLevel(r, seed) {
+function genLevel(r, seed, bpm) {
   const R = mulberry(seed * 7919 + r * 104729);
   const rnd = n => Math.floor(R() * n);
   const pick = arr => arr[rnd(arr.length)];
@@ -122,7 +108,12 @@ function genLevel(r, seed) {
   // 1라운드 1.35초 → 30라운드 1.0초로 서서히 줄고, 31라운드 이후는 1.15초
   const gapSec = r <= 30 ? 1.35 - 0.35 * (r - 1) / 29 : 1.15;
   const lead = () => Math.ceil(gapSec * tps(cs())) + rnd(3);
-  let prevC = null;                                                   // 비행 구간에서 직전 통로 중심 (행 단위)
+  // 박자 맞춤: 장애물이 음악의 박(beat)에 도착하도록 위치를 다음 박으로 민다 (속도 포털 구간도 시간으로 환산)
+  const beatSec = 60 / bpm;
+  let xRef = 0, tRef = 0;
+  const setMul = (x, m) => { tRef += (x - xRef) / tps(cs()); xRef = x; mul = m; };
+  const snap = x => Math.round(xRef + (Math.ceil((tRef + (x - xRef) / tps(cs())) / beatSec - 1e-9) * beatSec - tRef) * tps(cs()));
+  let prevC = null;                                                  // 비행 구간에서 직전 통로 중심 (행 단위)
   const used = new Set();
 
   // ----- 지상 구간 -----
@@ -151,19 +142,35 @@ function genLevel(r, seed) {
       case "padSpikes": a.pad(x); for (let i = 3; i <= 6; i++) a.spike(x + i); return x + 7;
       case "pillarhop": a.column(x, 2); a.spike(x + 3); a.column(x + 6, 2); return x + 7;
       case "underbridge": for (let i = 0; i < 5; i++) a.hang(x + i, 4); a.spike(x + 2); return x + 5;
+      // 공중 발판: 계단에 올라 스파이크 바닥 위의 떠 있는 발판을 건너뜀 (폭·간격은 점프 거리에 비례)
+      case "platforms": {
+        const jl = AIR * tps(cs()), w = Math.max(3, Math.ceil(jl * 0.55)), g = Math.max(2, Math.round(jl * 0.3)), n = 2 + rnd(2);
+        for (let i = 0; i < w; i++) a.column(x + i, 1);
+        let e = x + w;
+        for (let k = 0; k < n; k++) { for (let i = 0; i < g; i++) a.spike(e + i); for (let i = 0; i < w; i++) a.block(e + g + i, 1); e += g + w; }
+        return e;
+      }
+      // 점프 링: 한 번의 점프로는 못 넘는 긴 스파이크/구덩이 위에서 링을 눌러 2단 점프
+      case "orbSpikes": case "orbPit": {
+        const jl = AIR * tps(cs()), n = Math.ceil(jl * 1.45);
+        if (kind === "orbPit") a.gap(x, x + n); else for (let i = 0; i < n; i++) a.spike(x + i);
+        a.orb(x - 0.5 + jl * 0.75, 1.8);
+        return x + n;
+      }
     }
   };
   // stairs3/stairs4/pyramid/pillarhop 처럼 좁은 발판에 정확히 착지해야 하는 장애물은
   // 속도가 아주 빨라지는 4~5단계에서는 물리적으로 클리어가 불가능해질 수 있어 3단계까지만 사용
   const pools = {
-    1: ["spike1", "spike2", "spikeGap", "hurdle", "stairs2", "zigzagStep", "gap3", "wave", "chain"],
-    2: ["spike2", "spike3", "spikeGap", "hurdle", "stairs2", "stairs3", "zigzagStep", "wave", "chain", "gap3", "gap4", "padgap", "underbridge", "pillarhop"],
-    3: ["spike3", "spikeGap", "spikeGap3", "stairs3", "stairs4", "pyramid", "zigzagStep", "wave", "chain", "chain2", "gap4", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "pillarhop"],
-    4: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padgap", "padSpikes", "underbridge"],
-    5: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padSpikes", "padSpikes", "underbridge", "padgap"],
+    1: ["spike1", "spike2", "spikeGap", "hurdle", "stairs2", "zigzagStep", "gap3", "wave", "chain", "platforms", "orbSpikes"],
+    2: ["spike2", "spike3", "spikeGap", "hurdle", "stairs2", "stairs3", "zigzagStep", "wave", "chain", "gap3", "gap4", "padgap", "underbridge", "pillarhop", "platforms", "platforms", "orbSpikes", "orbPit"],
+    3: ["spike3", "spikeGap", "spikeGap3", "stairs3", "stairs4", "pyramid", "zigzagStep", "wave", "chain", "chain2", "gap4", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "pillarhop", "platforms", "platforms", "orbSpikes", "orbPit"],
+    4: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "platforms", "platforms", "orbSpikes", "orbPit"],
+    5: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padSpikes", "padSpikes", "underbridge", "padgap", "platforms", "platforms", "orbSpikes", "orbPit"],
   };
+  for (const k in pools) pools[k].push("platforms", "platforms", "orbSpikes", "orbSpikes", k > 1 ? "orbPit" : "orbSpikes");   // 공중 발판·점프 링이 자주 나오도록 비중을 높임
   // zone() 은 최고 속도(1.3배 포털 x 후반 라운드 가속)가 겹칠 수 있어 검증된 장애물만 사용
-  const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep"];
+  const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep", "platforms", "orbSpikes"];
 
   // ----- 비행 구간: 바닥 또는 천장 중 한쪽에만 장애물 (위아래 동시에 막는 통로는 만들지 않음) -----
   const tunnel = (a, cx) => {
@@ -222,11 +229,11 @@ function genLevel(r, seed) {
   // ----- 속도 구간: 빨간 포털(빨라짐) / 파란 포털(느려짐) -----
   const zone = (a, x) => {
     const fast = R() < 0.6, m = fast ? 1.3 : 0.8;
-    a.speed(x, m); mul = m; used.add(fast ? "fast" : "slow");
+    a.speed(x, m); setMul(x, m); used.add(fast ? "fast" : "slow");
     let cx = x;
     const n = 3 + rnd(2);
-    for (let i = 0; i < n; i++) { cx += lead(); cx = ground(a, cx, pick(simple)); }
-    cx += lead(); a.speed(cx, 1); mul = 1;
+    for (let i = 0; i < n; i++) { cx = snap(cx + lead()); cx = ground(a, cx, pick(simple)); }
+    cx += lead(); a.speed(cx, 1); setMul(cx, 1);
     return cx + Math.ceil(0.25 * tps(s));
   };
 
@@ -240,12 +247,12 @@ function genLevel(r, seed) {
       last = t; sp.push({ f: (i + 0.5) / nSp + (R() - 0.5) * 0.06, t });
     }
     const fns = { fly, flip, zone };
-    let x = 16;
+    let x = 16, since = 2;   // since: 직전 특수 구간 이후 놓인 지상 장애물 수 (특수 구간 사이에 최소 2개는 지상 장애물)
     while (x < target) {
-      x += lead();
+      x = snap(x + lead());
       const frac = (x - 16) / (target - 16);
-      if (sp.length && frac >= sp[0].f) x = fns[sp.shift().t](a, x);
-      else x = ground(a, x, pick(pools[d]));
+      if (sp.length && frac >= sp[0].f && since >= 2) { x = fns[sp.shift().t](a, x); since = 0; }
+      else { x = ground(a, x, pick(pools[d])); since++; }
     }
     a.setEnd(x + 8);
   });
@@ -254,6 +261,7 @@ function genLevel(r, seed) {
   if (used.has("flip")) parts.push("중력반전");
   if (used.has("fast") || used.has("slow")) parts.push("속도변화");
   if (lv.pads.length) parts.push("점프패드");
+  if (lv.orbs.length) parts.push("점프링");
   lv.desc = parts.join(" · ") || "스파이크 · 블록";
   return lv;
 }
@@ -621,9 +629,9 @@ const THEMES = [
 const TOD_PREFIX = ["", "노을 진 ", "한밤의 "];   // 1~10라운드 낮, 11~20 노을, 21~30 밤
 
 // 봇 검증으로 확정한 라운드별 시드 (오프라인 검증: 전 라운드 클리어 가능)
-const SEEDS = [1,1,1,1,1,1,1,1,1,1,2,1,1,5,1,6,1,2,2,1,1,2,4,3,9,4,4,23,5,9,3,15,5,9,1,25,21,2,6,3,19,7,1,5,7,19,24,1,13,3];
+const SEEDS = [1,1,2,2,1,2,4,5,1,1,1,4,1,1,1,3,1,1,2,2,7,1,2,1,2,1,2,1,1,1,1,2,2,1,1,1,2,1,1,2,1,2,2,3,3,4,1,1,1,1];
 const LEVELS = SEEDS.map((sd, i) => {
-  const lv = HAND[i + 1] || genLevel(i + 1, sd);
+  const lv = genLevel(i + 1, sd, SONGS[i % SONGS.length].bpm);
   lv.stars = 1 + Math.min(4, Math.floor(i / 10));
   if (i < 30) { lv.theme = i % 10; lv.tod = Math.floor(i / 10); lv.name = TOD_PREFIX[lv.tod] + THEMES[lv.theme].name; }          // 1~30: 주변 장소 (낮/노을/밤)
   else { lv.theme = 10 + (i - 30) % 10; lv.tod = Math.floor((i - 30) / 10) % 2; lv.name = THEMES[lv.theme].name + (lv.tod ? " II" : ""); }   // 31~50: 네온/기하 테마
@@ -635,7 +643,8 @@ const LEVELS = SEEDS.map((sd, i) => {
 const Snd = (() => {
   let ac = null, master = null, musicGain = null, noiseBuf = null, timer = null;
   let muted = false, running = false, menuMode = false;
-  let step = 0, nextT = 0, bpm = 140, root = 45, progress = 0, lastPad = 0;
+  let synth = null, duck = null, leadF = null;
+  let step = 0, nextT = 0, t0 = 0, bpm = 140, song = SONGS[0], shift = 0, lastPad = 0;
   try { muted = localStorage.getItem("tiredash-mute") === "1"; } catch (e) {}
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -648,6 +657,10 @@ const Snd = (() => {
     const comp = ac.createDynamicsCompressor();
     master.connect(comp); comp.connect(ac.destination);
     musicGain = ac.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
+    // 신스 버스: 킥이 칠 때마다 살짝 눌렸다 올라오는 사이드체인 펌핑
+    duck = ac.createGain(); duck.connect(musicGain);
+    synth = ac.createGain(); synth.connect(duck);
+    leadF = ac.createBiquadFilter(); leadF.type = "lowpass"; leadF.frequency.value = 4200; leadF.connect(synth);
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -668,34 +681,62 @@ const Snd = (() => {
     n.connect(f); f.connect(g); g.connect(dest); n.start(t, Math.random() * 0.5); n.stop(t + dur + 0.03);
   }
 
-  // 코드 진행: i - VI - III - VII (단조, 긴장감 있는 진행) + 마디별 리드 멜로디
-  const CHORD_ROOT = [0, 8, 3, 10], CHORD_MINOR = [true, false, false, false];
-  const LEAD = [
-    [[0, 2, 3], [3, 1, 3], [6, 2, 2], [10, 0, 2], [12, 1, 4]],
-    [[0, 0, 2], [2, 1, 2], [4, 2, 3], [8, 1, 2], [11, 2, 3]],
-    [[0, 2, 2], [3, 2, 2], [6, 1, 3], [9, 0, 2], [12, 2, 4]],
-    [[0, 1, 2], [2, 2, 2], [4, 1, 2], [6, 0, 2], [8, 1, 2], [10, 2, 2], [12, 2, 4]],
-  ];
+  // 음이 끝까지 유지되는 신스 음색 (리드/패드용)
+  function tone(type, f, t, dur, vol, dest, det) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (det) o.detune.value = det;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.008);
+    g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(t + dur + 0.03);
+  }
 
+  const MAJ = [0, 2, 4, 5, 7, 9, 11], MIN = [0, 2, 3, 5, 7, 8, 10];
+  const deg2m = d => song.root + shift + 12 * Math.floor(d / 7) + (song.major ? MAJ : MIN)[d % 7];
+  function notesOf(bar) {   // 멜로디 문자열 → [시작 칸, 음, 길이]
+    if (!song.notes) song.notes = song.mel.map(s => {
+      const out = [];
+      for (let i = 0; i < 16; i++) { const c = s[i]; if (c === "-") { if (out.length) out[out.length - 1][2]++; } else if (c !== ".") out.push([i, +c, 1]); }
+      return out;
+    });
+    return song.notes[bar];
+  }
+
+  // 편곡: 8마디 단위로 A(기본) → B(아르페지오 추가, 멜로디 한 옥타브 위) → 브레이크 4마디 후 재진입 → 풀 편성
   function schedule(st, t) {
-    const sd = 60 / bpm / 4, bar = Math.floor(st / 16) % 4, k = st % 16;
-    const inten = menuMode ? 0 : Math.min(1, progress * 1.4);
-    const rt = root + CHORD_ROOT[bar], tones = (CHORD_MINOR[bar] ? [0, 3, 7] : [0, 4, 7]).map(x => rt + x);
-    // 드럼: 4비트 킥, 백비트 스네어, 하이햇 (진행할수록 촘촘해짐)
-    if (k % 4 === 0) osc("sine", 160, t, 0.16, 0.9, musicGain, 42);
-    if (k === 4 || k === 12) { noise(t, 0.13, 0.5, musicGain, "bandpass", 1900); osc("triangle", 210, t, 0.09, 0.3, musicGain, 120); }
-    if (k % 2 === 0 || inten > 0.5) noise(t, 0.04, k % 4 === 2 ? 0.2 : 0.11, musicGain, "highpass", 7500);
-    if (bar === 3 && k >= 12 && inten > 0.2) noise(t, 0.06, 0.15 + (k - 12) * 0.05, musicGain, "bandpass", 3000);   // 마디 끝 스네어 롤
-    // 베이스: 옥타브를 오가는 추진력 있는 8분음표 (후반엔 16분음표)
-    if (k % 2 === 0 || inten > 0.6) osc("sawtooth", mtof(rt - 24 + (k % 4 === 2 ? 12 : 0)), t, sd * 1.7, 0.2, musicGain);
-    // 아르페지오: 16분음표 (방향이 바뀌며 긴장감을 만듦)
-    if (!menuMode) {
-      const idx = [0, 1, 2, 1, 2, 1, 0, 1][k % 8];
-      osc("square", mtof(tones[idx] + (k % 8 >= 4 ? 24 : 12)), t, sd * 0.9, 0.05 + inten * 0.03, musicGain);
+    const sd = 60 / bpm / 4, b = Math.floor(st / 16), bar = b % 4, k = st % 16, sec = Math.floor(b / 8) % 4;
+    const brk = !menuMode && sec === 2 && b % 8 < 4;
+    const cd = song.prog[bar], tones = [cd, cd + 2, cd + 4].map(deg2m);
+    if (menuMode) {
+      if (k % 8 === 0) osc("sine", 140, t, 0.16, 0.5, musicGain, 45);
+      if (k % 4 === 2) noise(t, 0.05, 0.1, musicGain, "highpass", 7500);
+      if (k % 4 === 2) osc("sawtooth", mtof(tones[0] - 24), t, sd * 1.6, 0.14, synth);
+    } else if (!brk) {
+      // 드럼: 4비트 킥 + 박수 스네어 + 엇박 하이햇
+      if (k % 4 === 0) {
+        osc("sine", 150, t, 0.2, 0.95, musicGain, 42); noise(t, 0.012, 0.25, musicGain, "highpass", 3000);
+        duck.gain.setValueAtTime(0.4, t); duck.gain.linearRampToValueAtTime(1, t + sd * 3);
+      }
+      if (song.half ? k === 8 : (k === 4 || k === 12)) { noise(t, 0.15, 0.5, musicGain, "bandpass", 1700); osc("triangle", 220, t, 0.09, 0.25, musicGain, 120); }
+      if (k % 4 === 2) noise(t, 0.09, 0.2, musicGain, "highpass", 7000);
+      else if (k % 2 === 1 && sec % 2 === 1) noise(t, 0.03, 0.08, musicGain, "highpass", 9000);
+      if (b % 8 === 7 && k >= 12) noise(t, 0.06, 0.15 + (k - 12) * 0.06, musicGain, "bandpass", 2600);   // 구간 끝 필인
+      // 베이스: 킥 자리를 비우고 구르는 16분음표 (하프타임 곡은 묵직한 당김음)
+      if (song.half ? [0, 3, 6, 10, 12].includes(k) : k % 4 !== 0) osc("sawtooth", mtof(tones[0] - 24), t, sd * (song.half ? 2.6 : 1.1), 0.2, synth);
+      // 코드 스탭
+      if (sec >= 1 && [0, 3, 6, 10, 12].includes(k)) for (const m of tones) osc("sawtooth", mtof(m), t, sd * 1.6, 0.035, leadF);
+      // 아르페지오
+      if (sec % 2 === 1) osc("square", mtof(tones[[0, 1, 2, 1][k % 4]] + 12), t, sd * 0.9, 0.035, synth);
+    } else {
+      // 브레이크: 드럼이 빠지고 패드만, 마지막 마디에 스네어 롤로 고조
+      if (k === 0) for (const m of tones) tone("triangle", mtof(m), t, sd * 16, 0.07, synth);
+      if (b % 8 === 3 && (k % 2 === 0 || k >= 8)) noise(t, 0.06, 0.08 + k * 0.025, musicGain, "bandpass", 2200 + k * 120);
     }
-    // 리드: 신스 멜로디 (중반 이후 등장)
-    if (inten > 0.25 || menuMode) for (const [ls, ti, len] of LEAD[bar]) if (ls === k) osc("triangle", mtof(tones[ti] + 24), t, sd * len, 0.16, musicGain);
-    if (inten > 0.65 && k % 4 === 0) osc("square", mtof(tones[2] + 36), t, sd * 1.2, 0.04, musicGain);
+    // 리드 멜로디
+    const up = sec === 1 ? 24 : 12, vol = menuMode ? 0.1 : brk ? 0.08 : 0.11;
+    for (const [ls, dg, len] of notesOf(bar)) if (ls === k) {
+      const f = mtof(deg2m(dg) + up);
+      tone("square", f, t, sd * len, vol, leadF); tone("sawtooth", f, t, sd * len, vol * 0.7, leadF, 9);
+    }
   }
 
   function pump() {
@@ -704,8 +745,9 @@ const Snd = (() => {
   }
   function begin() {
     if (!ac) return;
-    running = true; step = 0; nextT = ac.currentTime + 0.06;
+    running = true; step = 0; nextT = t0 = ac.currentTime + 0.06;
     musicGain.gain.cancelScheduledValues(ac.currentTime); musicGain.gain.setValueAtTime(menuMode ? 0.32 : 0.5, ac.currentTime);
+    duck.gain.cancelScheduledValues(ac.currentTime); duck.gain.setValueAtTime(1, ac.currentTime);
     if (!timer) timer = setInterval(pump, 25);
   }
   const sfx = (fn) => { if (!ac || muted) return; fn(ac.currentTime, master); };
@@ -718,11 +760,12 @@ const Snd = (() => {
       try { localStorage.setItem("tiredash-mute", muted ? "1" : "0"); } catch (e) {}
       if (master) master.gain.setValueAtTime(muted ? 0 : 0.55, ac.currentTime);
     },
-    setSong(b, r) { bpm = b; root = r; menuMode = false; },
+    setSong(i) { song = SONGS[i % SONGS.length]; bpm = song.bpm; shift = [0, 2, -2, 3, -3][Math.floor(i / SONGS.length) % 5]; menuMode = false; },   // 라운드마다 곡/조성이 달라짐
     restart() { if (ac) begin(); },
-    menu() { if (!ac) return; bpm = 112; root = 45; menuMode = true; begin(); },
+    menu() { if (!ac) return; song = SONGS[0]; bpm = 120; shift = 0; menuMode = true; begin(); },
     stopMusic() { running = false; },
-    setProgress(p) { progress = p; },
+    // 박자에 맞춰 1 → 0 으로 떨어지는 값 (화면 요소를 음악에 맞춰 번쩍이게 함)
+    pulse() { if (!ac || !running) return 0; const ph = (ac.currentTime - t0) / (60 / bpm); return ph < 0 ? 0 : Math.max(0, 1 - (ph % 1) * 3); },
     isRunning: () => running,
     jump()   { sfx((t, d) => { osc("square", 330, t, 0.09, 0.14, d, 620); }); },
     pad()    { sfx((t, d) => { if (t - lastPad < 0.25) return; lastPad = t; osc("triangle", 380, t, 0.22, 0.25, d, 1500); osc("square", 760, t, 0.12, 0.06, d, 1800); }); },
@@ -756,14 +799,14 @@ function saveBest(pct) {
 
 function reset() {
   P.x = 0; P.y = GROUND - S; P.vy = 0; P.grounded = true; P.mode = "roll"; P.grav = 1; P.angle = 0; P.spd = 1;
+  for (const o of LV.orbs) o.used = false;
   nextPortal = 0; particles = []; trail = []; state = "play";
   Snd.restart();
 }
 
-const ROOTS = [45, 47, 48, 50, 52, 43, 41];   // 라운드마다 조성이 달라짐
 function startLevel(i) {
   lvIdx = i; LV = LEVELS[i]; attempts = 1;
-  Snd.setSong(Math.min(176, Math.round(128 + 36 * (LV.speed - 0.9) / 0.4)), ROOTS[i % ROOTS.length]);
+  Snd.setSong(i);
   reset();
 }
 
@@ -844,6 +887,7 @@ layout();
 
 // ---------- 업데이트 ----------
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+const ORB_R = 0.7 * T;      // 점프 링 판정 반경 (보이는 것보다 넉넉함)
 const inGap = () => LV.gaps.some(g => P.x >= g[0] * T && P.x + S <= g[1] * T);
 
 function step(dt) {
@@ -910,12 +954,15 @@ function step(dt) {
     const dx = d.x * T, dy = GROUND - d.y * T - 10;
     if (overlap(P.x, P.y, S, S, dx + 4, dy, T - 8, 10)) { P.vy = -PAD_V; P.grounded = false; Snd.pad(); }
   }
+  // 점프 링: 닿은 상태에서 누르고 있으면 공중에서 한 번 더 점프
+  if (P.mode === "roll" && holding) for (const o of LV.orbs) {
+    if (!o.used && overlap(P.x, P.y, S, S, o.x * T - ORB_R, GROUND - o.y * T - ORB_R, ORB_R * 2, ORB_R * 2)) { o.used = true; P.vy = -JUMP_V * dir; P.grounded = false; Snd.pad(); }
+  }
   if (P.x > LV.end * T) { state = "win"; saveBest(100); Snd.win(); }
 }
 
 function update(dt) {
   tAnim += dt;
-  Snd.setProgress(state === "play" || state === "dead" ? Math.min(1, P.x / (LV.end * T)) : 0);
   if (shake > 0) shake -= dt;
   for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 1200 * dt; p.life -= dt; }
   particles = particles.filter(p => p.life > 0);
@@ -999,7 +1046,7 @@ function drawBlock(x, y) {
   ctx.fillRect(x, y, T, T);
   ctx.strokeStyle = pal().edge; ctx.lineWidth = 2;
   ctx.strokeRect(x + 1, y + 1, T - 2, T - 2);
-  ctx.globalAlpha = 0.18; ctx.fillStyle = pal().edge;
+  ctx.globalAlpha = 0.18 + 0.22 * beatPulse; ctx.fillStyle = pal().edge;   // 박자에 맞춰 번쩍임
   ctx.fillRect(x + 8, y + 8, T - 16, T - 16); ctx.globalAlpha = 1;
 }
 
@@ -1065,7 +1112,9 @@ function text(s, x, y, size, color = "#fff", align = "center") {
   ctx.fillStyle = color; ctx.fillText(s, x, y);
 }
 
+let beatPulse = 0;
 function drawWorld(cam) {
+  beatPulse = Snd.pulse();
   for (const r of LV.ceil) {
     const x0 = r[0] * T - cam, x1 = r[1] * T - cam;
     if (x1 < 0 || x0 > W / ZOOM) continue;
@@ -1081,6 +1130,14 @@ function drawWorld(cam) {
   for (const d of LV.pads) if (inView(d.x)) {
     ctx.fillStyle = "#ffd447"; ctx.fillRect(d.x * T - cam + 4, GROUND - d.y * T - 8, T - 8, 8);
     ctx.fillStyle = "rgba(255,212,71,0.35)"; ctx.fillRect(d.x * T - cam + 8, GROUND - d.y * T - 14, T - 16, 6);
+  }
+  for (const o of LV.orbs) if (inView(o.x)) {
+    const ox = o.x * T - cam, oy = GROUND - o.y * T, rr = T * (0.3 + 0.06 * beatPulse);
+    ctx.globalAlpha = o.used ? 0.3 : 1;
+    ctx.strokeStyle = "#ffd447"; ctx.lineWidth = 3; ctx.shadowColor = "#ffd447"; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(ox, oy, rr + 9, 0, 7); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffe98a"; ctx.beginPath(); ctx.arc(ox, oy, rr, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
   }
   for (const p of LV.portals) if (inView(p.x)) {
     const x = p.x * T - cam;
@@ -1171,7 +1228,7 @@ function drawMenu() {
   });
   const cur = LEVELS[sel];
   text((sel + 1) + ". " + cur.name + "  —  " + cur.desc, W / 2, H - 40, 20, "#fff");
-  text(W < 900 ? "터치: 점프(화면 어디든) · 파란 포탈 비행 · 분홍 포탈 중력 반전" : "클릭/터치 또는 방향키 + 스페이스 · N: 소리 · 누르고 있으면 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전 · 빨강/하늘 포탈 속도 변화", W / 2, H - 14, W < 900 ? 15 : 13, "#cfd6ff");
+  text(W < 900 ? "터치: 점프(화면 어디든) · 노란 링: 공중에서 터치하면 2단 점프 · 파란 포탈 비행" : "클릭/터치 또는 방향키 + 스페이스 · N: 소리 · 누르고 있으면 점프 · 노란 링: 공중에서 누르면 2단 점프 · 파란 포탈 비행 · 분홍 포탈 중력 반전 · 빨강/하늘 포탈 속도 변화", W / 2, H - 14, W < 900 ? 15 : 13, "#cfd6ff");
 }
 
 // ---------- 메인 루프 ----------
