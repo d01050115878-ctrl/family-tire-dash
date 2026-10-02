@@ -44,10 +44,12 @@ const SONGS = [
 
 // ---------- 레벨 빌더 (모든 맵은 오리지널 설계, 타일 좌표) ----------
 function makeLevel(meta, build) {
-  const L = Object.assign({ spikes: [], blocks: [], pads: [], orbs: [], portals: [], gaps: [], ceil: [] }, meta);
+  const L = Object.assign({ spikes: [], blocks: [], pads: [], orbs: [], saws: [], portals: [], gaps: [], ceil: [] }, meta);
   const api = {
     spike:     (x, y = 0) => L.spikes.push({ x, y, down: false }),
     hangSpike: (x, n = 0) => L.spikes.push({ x, y: 7 - n, down: true }),   // 천장에 매달린 스파이크
+    mini:      x => L.spikes.push({ x, y: 0, down: false, small: true }),      // 낮은 미니 스파이크
+    saw:       (x, y, r) => L.saws.push({ x, y, r }),                          // 회전 톱니 (중심 좌표·반지름, 타일 단위)
     block:     (x, y = 0) => L.blocks.push({ x, y }),
     column:    (x, h) => { for (let i = 0; i < h; i++) L.blocks.push({ x, y: i }); },
     hang:      (x, n) => { for (let i = 0; i < n; i++) L.blocks.push({ x, y: 7 - i }); },
@@ -159,6 +161,36 @@ function genLevel(r, seed, bpm) {
         a.orb(x - 0.5 + jl * 0.75, 1.8);
         return x + n;
       }
+      // 오르막 발판: 한 칸씩 높아지는 떠 있는 발판을 타고 올라갔다가 끝에서 뛰어내림
+      case "stairsUp": {
+        const jl = AIR * tps(cs()), w = Math.max(3, Math.ceil(jl * 0.55)), g = Math.max(2, Math.round(jl * 0.3)), n = 2 + rnd(2);
+        for (let i = 0; i < w; i++) a.column(x + i, 1);
+        let e = x + w;
+        for (let k = 0; k < n; k++) { for (let i = 0; i < g; i++) a.spike(e + i); for (let i = 0; i < w; i++) a.block(e + g + i, k + 1); e += g + w; }
+        return e;
+      }
+      // 톱니: 바닥에 반쯤 박힌 회전 톱니 (하나 / 둘이 붙은 넓은 톱니)
+      case "saw": a.saw(x + 1.1, 0, 1.1); return x + 3;
+      case "sawWide": a.saw(x + 1.1, 0, 1.1); a.saw(x + 3.1, 0, 1.1); return x + 5;
+      // 스파이크를 넘은 뒤 머리 위 톱니: 착지하자마자 또 뛰면 톱니에 닿음
+      case "spikeSaw": {
+        const jl = AIR * tps(cs());
+        a.spike(x); a.spike(x + 1); a.saw(x + 2 + jl * 1.3, 3.2, 1.1);
+        return Math.ceil(x + 4 + jl * 1.3);
+      }
+      // 미니 스파이크 밭: 낮은 스파이크가 길게 깔림
+      case "miniSpikes": {
+        const n = Math.max(3, Math.floor(AIR * tps(cs()) * 0.45));
+        for (let i = 0; i < n; i++) a.mini(x + i);
+        return x + n;
+      }
+      // 점프패드 탑: 패드로 높이 튀어 올라 4칸 높이 탑 위에 착지
+      case "padTower": {
+        const t = tps(cs()), st = x + Math.ceil(0.3 * t), en = x + Math.ceil(0.761 * t) + Math.max(3, Math.ceil(t * 0.25));
+        a.pad(x);
+        for (let i = st; i < en; i++) a.column(i, 4);
+        return en;
+      }
     }
   };
   // stairs3/stairs4/pyramid/pillarhop 처럼 좁은 발판에 정확히 착지해야 하는 장애물은
@@ -170,12 +202,16 @@ function genLevel(r, seed, bpm) {
     4: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padgap", "padSpikes", "underbridge", "platforms", "platforms", "orbSpikes", "orbPit"],
     5: ["spike3", "spikeGap3", "stairs2", "zigzagStep", "wave", "chain2", "chain2", "gap5", "doublegap", "padSpikes", "padSpikes", "underbridge", "padgap", "platforms", "platforms", "orbSpikes", "orbPit"],
   };
-  for (const k in pools) pools[k].push("platforms", "platforms", "orbSpikes", "orbSpikes", k > 1 ? "orbPit" : "orbSpikes");   // 공중 발판·점프 링이 자주 나오도록 비중을 높임
+  for (const k in pools) {
+    pools[k].push("platforms", "orbSpikes", k > 1 ? "orbPit" : "orbSpikes", "stairsUp", "stairsUp", "saw", "saw", "miniSpikes", "miniSpikes");   // 발판·링·톱니류가 자주 나오도록 비중을 높임
+    if (k > 1) pools[k].push("sawWide", "spikeSaw", "spikeSaw", "padTower", "padTower");
+  }
   // zone() 은 최고 속도(1.3배 포털 x 후반 라운드 가속)가 겹칠 수 있어 검증된 장애물만 사용
-  const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep", "platforms", "orbSpikes"];
+  const simple = ["spike1", "spike2", "spikeGap", "gap3", "gap4", "wave", "stairs2", "zigzagStep", "platforms", "orbSpikes", "saw", "miniSpikes"];
 
   // ----- 비행 구간: 바닥 또는 천장 중 한쪽에만 장애물 (위아래 동시에 막는 통로는 만들지 않음) -----
   const tunnel = (a, cx) => {
+    if (R() < 0.3) { a.saw(cx + 1.1, 3 + rnd(3), 1.1); prevC = null; return cx + 3; }   // 공중에 뜬 톱니: 위나 아래로 피해 감
     const maxSum = [0, 3, 4, 5, 5, 5][d];
     let h = 0, n = 0, c = 0;
     for (let t = 0; t < 12; t++) {
@@ -196,10 +232,10 @@ function genLevel(r, seed, bpm) {
   const fly = (a, x) => {
     a.fly(x); used.add("fly"); prevC = null;
     let cx = x + Math.ceil(0.6 * tps(s)) + rnd(3);
-    const count = many(3 + rnd(2) + Math.ceil(d / 2));
+    const count = 3 + rnd(2) + Math.ceil(d / 2);   // 비행 구간은 밀도 배율을 적용하지 않음 (장애물 적게)
     for (let i = 0; i < count; i++) {
       cx = tunnel(a, cx);
-      cx += Math.ceil(((r > 30 ? 1.0 : 0.95) + Math.max(0, 3 - d) * 0.08) / DENSITY * tps(Math.max(1, cs()))) + rnd(2);
+      cx += Math.ceil(((r > 30 ? 1.0 : 0.95) + Math.max(0, 3 - d) * 0.08) * tps(Math.max(1, cs()))) + rnd(2);
     }
     a.roll(cx);
     return cx + Math.ceil(0.35 * tps(s));
@@ -264,6 +300,7 @@ function genLevel(r, seed, bpm) {
   if (used.has("fast") || used.has("slow")) parts.push("속도변화");
   if (lv.pads.length) parts.push("점프패드");
   if (lv.orbs.length) parts.push("점프링");
+  if (lv.saws.length) parts.push("톱니");
   lv.desc = parts.join(" · ") || "스파이크 · 블록";
   return lv;
 }
@@ -276,7 +313,7 @@ const NAMES = ["네온 러시", "비트 점프", "폴라 나이트", "드라이 
 const TIER = ["", " II", " III", " IV", " V"];
 
 // 봇 검증으로 확정한 라운드별 시드 (오프라인 검증: 전 라운드 클리어 가능)
-const SEEDS = [1,1,1,2,1,1,1,1,2,1,2,1,2,1,1,2,2,1,1,1,1,2,2,1,1,2,2,2,1,1,1,1,1,1,1,1,1,1,3,3,1,1,1,1,1,1,2,1,1,1];
+const SEEDS = [3,1,3,2,1,1,2,4,4,1,1,2,1,2,2,2,2,2,5,1,4,2,2,6,3,1,1,2,1,1,1,3,1,2,1,1,1,1,1,2,1,2,1,1,1,2,1,3,1,1];
 const LEVELS = SEEDS.map((sd, i) => {
   const lv = genLevel(i + 1, sd, SONGS[i % SONGS.length].bpm);
   lv.stars = 1 + Math.min(4, Math.floor(i / 10));
@@ -543,6 +580,7 @@ layout();
 
 // ---------- 업데이트 ----------
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+const SAW_HIT = 0.85;       // 톱니 판정 반경 비율
 const ORB_R = 0.7 * T;      // 점프 링 판정 반경 (보이는 것보다 넉넉함)
 const inGap = () => LV.gaps.some(g => P.x >= g[0] * T && P.x + S <= g[1] * T);
 
@@ -602,8 +640,16 @@ function step(dt) {
     if (!sl) continue;
     for (const sp of sl) {
       const sx = sp.x * T, sy = GROUND - (sp.y + 1) * T;
+      if (sp.small) { if (overlap(P.x, P.y, S, S, sx + 15 * K, sy + 27 * K, 10 * K, 13 * K)) return die(); continue; }
       if (overlap(P.x, P.y, S, S, sx + 13 * K, sp.down ? sy : sy + 16 * K, 14 * K, 24 * K)) return die();
     }
+  }
+  // 톱니 (원형 판정, 보이는 것보다 조금 작게)
+  for (const w of LV.saws) {
+    const cx = w.x * T, cy = GROUND - w.y * T, rr = w.r * T * SAW_HIT;
+    if (cx + rr < P.x || cx - rr > P.x + S) continue;
+    const nx = Math.max(P.x, Math.min(cx, P.x + S)), ny = Math.max(P.y, Math.min(cy, P.y + S));
+    if ((nx - cx) * (nx - cx) + (ny - cy) * (ny - cy) < rr * rr) return die();
   }
   // 패드
   if (P.mode === "roll" && dir === 1) for (const d of LV.pads) {
@@ -709,11 +755,23 @@ function drawBlock(x, y) {
   ctx.fillRect(x + 8, y + 8, T - 16, T - 16); ctx.globalAlpha = 1;
 }
 
-function drawSpike(x, y, down) {
+function drawSaw(x, y, r) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(tAnim * 4);
+  ctx.fillStyle = "#06060c"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < 20; i++) { const a = i * Math.PI / 10, rr = i % 2 ? r * 0.78 : r; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.4, 0, 7); ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0, 0, r * 0.12, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function drawSpike(x, y, down, small) {
   ctx.fillStyle = "#06060c";
   ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
   ctx.beginPath();
-  if (down) { ctx.moveTo(x + 3, y); ctx.lineTo(x + T / 2, y + T - 4); ctx.lineTo(x + T - 3, y); }
+  if (small) { ctx.moveTo(x + 8, y + T); ctx.lineTo(x + T / 2, y + T * 0.55); ctx.lineTo(x + T - 8, y + T); }
+  else if (down) { ctx.moveTo(x + 3, y); ctx.lineTo(x + T / 2, y + T - 4); ctx.lineTo(x + T - 3, y); }
   else { ctx.moveTo(x + 3, y + T); ctx.lineTo(x + T / 2, y + 4); ctx.lineTo(x + T - 3, y + T); }
   ctx.closePath(); ctx.fill(); ctx.stroke();
 }
@@ -763,10 +821,11 @@ function drawWorld(cam) {
     ctx.fillStyle = pal().top;
     ctx.fillRect(x0, FLY_TOP - 3, x1 - x0, 3);
   }
+  for (const w of LV.saws) if ((w.x + w.r) * T - cam > 0 && (w.x - w.r) * T - cam < W / ZOOM) drawSaw(w.x * T - cam, GROUND - w.y * T, w.r * T);   // 바닥 톱니는 아래쪽 절반이 땅에 가려짐
   drawGround(cam);
   const inView = x => x * T - cam > -T && x * T - cam < W / ZOOM;
   for (const b of LV.blocks) if (inView(b.x)) drawBlock(b.x * T - cam, GROUND - (b.y + 1) * T);
-  for (const s of LV.spikes) if (inView(s.x)) drawSpike(s.x * T - cam, GROUND - (s.y + 1) * T, s.down);
+  for (const s of LV.spikes) if (inView(s.x)) drawSpike(s.x * T - cam, GROUND - (s.y + 1) * T, s.down, s.small);
   for (const d of LV.pads) if (inView(d.x)) {
     ctx.fillStyle = "#ffd447"; ctx.fillRect(d.x * T - cam + 4, GROUND - d.y * T - 8, T - 8, 8);
     ctx.fillStyle = "rgba(255,212,71,0.35)"; ctx.fillRect(d.x * T - cam + 8, GROUND - d.y * T - 14, T - 16, 6);
