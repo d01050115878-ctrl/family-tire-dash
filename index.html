@@ -34,11 +34,11 @@ const AIR = 2 * JUMP_V / GRAV;  // 점프 한 번의 체공 시간(초)
 // ---------- 곡 목록 (전부 오리지널 멜로디, 빠른 일렉트로 스타일) ----------
 // mel: 마디별 16분음표 16칸. 숫자 = 음계 음(7 = 한 옥타브 위), '-' = 앞 음 이어짐, '.' = 쉼
 const SONGS = [
-  { bpm: 160, root: 57, major: true,  prog: [0, 4, 5, 3], mel: ["4-.4.2.47-.4.2.0", "1-.1.6.14-.6.8-.", "2-.2.0.25-.7.9-.", "7-.5.3.57.8.9.8."] },
-  { bpm: 142, root: 52, major: false, prog: [0, 5, 2, 6], mel: ["0..0.2.4..4.2.0.", "5..5.7.9..7.5.4.", "2..2.4.6..4.6.7.", "6..6.8.64-3-2-1-"] },
+  { bpm: 160, root: 57, major: false, prog: [0, 5, 2, 6], mel: ["4-4-7-4-2-4-0-2-", "5-5-7-5-4-5-2-4-", "4-4-6-4-2-4-6-8-", "8-6-8-9-8-6-4-3-"] },   // 쉼 없이 달리는 8분음표 칩튠 훅
+  { bpm: 142, root: 55, major: true,  prog: [0, 4, 5, 3], mel: ["0.2.4-.4.2.0.2-.", "4.6.8-.8.6.4.6-.", "5.7.9-.9.7.5.7-.", "7.5.3-.5.7.8.7-4"] },   // 통통 튀는 플럭
   { bpm: 175, root: 50, major: false, prog: [0, 0, 5, 6], mel: ["7.4.2.4.7.4.2.4.", "8.4.2.4.9.4.2.4.", "7.5.2.5.9.5.2.5.", "8.6.3.6.8-6-4-3-"] },
   { bpm: 130, root: 53, major: false, prog: [0, 6, 5, 4], half: true, mel: ["0-..0.3-..2.0...", "6-..6.8-..6.4...", "5-..5.7-..9.7...", "4-..6.8-6-4-2-1-"] },
-  { bpm: 150, root: 55, major: true,  prog: [0, 3, 4, 0], mel: ["0.2.4.2.7-4-2-0.", "3.5.7.5.9-7-5-3.", "4.6.8.6.8-6-4-6.", "7-.7.4.27-..4-2-"] },
+  { bpm: 150, root: 53, major: true,  prog: [5, 3, 0, 4], mel: ["7-9-7-5-7---5-4-", "5-7-5-3-5---3-2-", "4-7-4-2-4---2-1-", "1-4-6-8-6---4-6-"] },
   { bpm: 170, root: 54, major: false, prog: [0, 2, 6, 5], mel: ["4.4.4-2.0.2.4-..", "6.6.6-4.2.4.6-..", "8.8.8-6.3.6.8-..", "9.7.5.7.9-8-7-4-"] },
 ];
 
@@ -289,7 +289,7 @@ const LEVELS = SEEDS.map((sd, i) => {
 const Snd = (() => {
   let ac = null, master = null, musicGain = null, noiseBuf = null, timer = null;
   let muted = false, running = false, menuMode = false;
-  let synth = null, duck = null, leadF = null;
+  let synth = null, duck = null, leadF = null, echo = null, padF = null, bassF = null;
   let step = 0, nextT = 0, t0 = 0, bpm = 140, song = SONGS[0], shift = 0, lastPad = 0;
   try { muted = localStorage.getItem("tiredash-mute") === "1"; } catch (e) {}
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
@@ -306,7 +306,12 @@ const Snd = (() => {
     // 신스 버스: 킥이 칠 때마다 살짝 눌렸다 올라오는 사이드체인 펌핑
     duck = ac.createGain(); duck.connect(musicGain);
     synth = ac.createGain(); synth.connect(duck);
-    leadF = ac.createBiquadFilter(); leadF.type = "lowpass"; leadF.frequency.value = 4200; leadF.connect(synth);
+    leadF = ac.createBiquadFilter(); leadF.type = "lowpass"; leadF.frequency.value = 5200; leadF.connect(synth);
+    // 리드에 박자 맞춘 에코(점8분음표 딜레이)를 걸어 공간감을 줌
+    echo = ac.createDelay(1); const fb = ac.createGain(), wet = ac.createGain(); fb.gain.value = 0.38; wet.gain.value = 0.32;
+    leadF.connect(echo); echo.connect(fb); fb.connect(echo); echo.connect(wet); wet.connect(synth);
+    padF = ac.createBiquadFilter(); padF.type = "lowpass"; padF.frequency.value = 2400; padF.connect(synth);
+    bassF = ac.createBiquadFilter(); bassF.type = "lowpass"; bassF.frequency.value = 700; bassF.Q.value = 4; bassF.connect(synth);
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -347,7 +352,7 @@ const Snd = (() => {
     return song.notes[bar];
   }
 
-  // 편곡: 8마디 단위로 A(기본) → B(아르페지오 추가, 멜로디 한 옥타브 위) → 브레이크 4마디 후 재진입 → 풀 편성
+  // 편곡: 8마디 단위로 A(기본) → B(아르페지오 추가) → 브레이크 4마디 후 재진입 → 풀 편성(아르페지오 + 화음)
   function schedule(st, t) {
     const sd = 60 / bpm / 4, b = Math.floor(st / 16), bar = b % 4, k = st % 16, sec = Math.floor(b / 8) % 4;
     const brk = !menuMode && sec === 2 && b % 8 < 4;
@@ -355,33 +360,37 @@ const Snd = (() => {
     if (menuMode) {
       if (k % 8 === 0) osc("sine", 140, t, 0.16, 0.5, musicGain, 45);
       if (k % 4 === 2) noise(t, 0.05, 0.1, musicGain, "highpass", 7500);
-      if (k % 4 === 2) osc("sawtooth", mtof(tones[0] - 24), t, sd * 1.6, 0.14, synth);
+      if (k % 4 === 2) osc("sawtooth", mtof(tones[0] - 24), t, sd * 1.6, 0.2, bassF);
     } else if (!brk) {
-      // 드럼: 4비트 킥 + 박수 스네어 + 엇박 하이햇
+      // 드럼: 4비트 킥 + 스네어 + 8분음표 하이햇(엇박은 오픈 하이햇)
       if (k % 4 === 0) {
-        osc("sine", 150, t, 0.2, 0.95, musicGain, 42); noise(t, 0.012, 0.25, musicGain, "highpass", 3000);
-        duck.gain.setValueAtTime(0.4, t); duck.gain.linearRampToValueAtTime(1, t + sd * 3);
+        osc("sine", 170, t, 0.22, 1, musicGain, 40); noise(t, 0.012, 0.3, musicGain, "highpass", 3000);
+        duck.gain.setValueAtTime(0.35, t); duck.gain.linearRampToValueAtTime(1, t + sd * 3.2);
       }
-      if (song.half ? k === 8 : (k === 4 || k === 12)) { noise(t, 0.15, 0.5, musicGain, "bandpass", 1700); osc("triangle", 220, t, 0.09, 0.25, musicGain, 120); }
-      if (k % 4 === 2) noise(t, 0.09, 0.2, musicGain, "highpass", 7000);
-      else if (k % 2 === 1 && sec % 2 === 1) noise(t, 0.03, 0.08, musicGain, "highpass", 9000);
+      if (song.half ? k === 8 : (k === 4 || k === 12)) { noise(t, 0.17, 0.5, musicGain, "bandpass", 1800); noise(t, 0.1, 0.2, musicGain, "highpass", 5000); osc("triangle", 230, t, 0.1, 0.3, musicGain, 130); }
+      if (k % 4 === 2) noise(t, 0.1, 0.2, musicGain, "highpass", 7000);
+      else if (k % 4 === 0 || sec % 2 === 1) noise(t, 0.03, 0.08, musicGain, "highpass", 9000);
       if (b % 8 === 7 && k >= 12) noise(t, 0.06, 0.15 + (k - 12) * 0.06, musicGain, "bandpass", 2600);   // 구간 끝 필인
-      // 베이스: 킥 자리를 비우고 구르는 16분음표 (하프타임 곡은 묵직한 당김음)
-      if (song.half ? [0, 3, 6, 10, 12].includes(k) : k % 4 !== 0) osc("sawtooth", mtof(tones[0] - 24), t, sd * (song.half ? 2.6 : 1.1), 0.2, synth);
-      // 코드 스탭
-      if (sec >= 1 && [0, 3, 6, 10, 12].includes(k)) for (const m of tones) osc("sawtooth", mtof(m), t, sd * 1.6, 0.035, leadF);
-      // 아르페지오
-      if (sec % 2 === 1) osc("square", mtof(tones[[0, 1, 2, 1][k % 4]] + 12), t, sd * 0.9, 0.035, synth);
+      // 베이스: 정박은 낮은 음, 엇박은 한 옥타브 위로 튀는 8분음표 (하프타임 곡은 묵직한 당김음)
+      if (song.half ? [0, 3, 6, 10, 12].includes(k) : k % 2 === 0) {
+        const m = tones[0] - 24 + (!song.half && k % 4 === 2 ? 12 : 0);
+        osc("sawtooth", mtof(m), t, sd * (song.half ? 2.8 : 1.9), 0.3, bassF); osc("square", mtof(m), t, sd * 1.5, 0.08, bassF);
+      }
+      // 코드: 마디 내내 깔리는 슈퍼소(디튠한 톱니파 겹침) 패드 — 킥에 맞춰 펌핑됨
+      if (k === 0) for (const m of tones) { tone("sawtooth", mtof(m), t, sd * 16, 0.028, padF, -9); tone("sawtooth", mtof(m), t, sd * 16, 0.028, padF, 9); }
+      // 칩튠 아르페지오: 두 옥타브를 오르내리는 16분음표
+      if (sec % 2 === 1) osc("square", mtof([tones[0], tones[1], tones[2], tones[0] + 12, tones[1] + 12, tones[2] + 12, tones[1] + 12, tones[0] + 12][k % 8] + 12), t, sd * 0.9, 0.03, synth);
     } else {
       // 브레이크: 드럼이 빠지고 패드만, 마지막 마디에 스네어 롤로 고조
-      if (k === 0) for (const m of tones) tone("triangle", mtof(m), t, sd * 16, 0.07, synth);
+      if (k === 0) for (const m of tones) { tone("sawtooth", mtof(m), t, sd * 16, 0.03, padF, -9); tone("sawtooth", mtof(m), t, sd * 16, 0.03, padF, 9); }
       if (b % 8 === 3 && (k % 2 === 0 || k >= 8)) noise(t, 0.06, 0.08 + k * 0.025, musicGain, "bandpass", 2200 + k * 120);
     }
-    // 리드 멜로디
-    const up = sec === 1 ? 24 : 12, vol = menuMode ? 0.1 : brk ? 0.08 : 0.11;
+    // 리드 멜로디: 사각파 칩튠 음색 (마지막 구간에서는 3도 위 화음이 붙음)
+    const vol = menuMode ? 0.09 : brk ? 0.08 : 0.1;
     for (const [ls, dg, len] of notesOf(bar)) if (ls === k) {
-      const f = mtof(deg2m(dg) + up);
-      tone("square", f, t, sd * len, vol, leadF); tone("sawtooth", f, t, sd * len, vol * 0.7, leadF, 9);
+      const f = mtof(deg2m(dg) + 12), dur = sd * Math.max(len, 1.6);
+      tone("square", f, t, dur, vol, leadF); tone("square", f, t, dur, vol * 0.6, leadF, 12); tone("sawtooth", f / 2, t, dur, vol * 0.35, leadF);
+      if (sec === 3) tone("square", mtof(deg2m(dg + 2) + 12), t, dur, vol * 0.45, leadF);
     }
   }
 
@@ -394,6 +403,7 @@ const Snd = (() => {
     running = true; step = 0; nextT = t0 = ac.currentTime + 0.06;
     musicGain.gain.cancelScheduledValues(ac.currentTime); musicGain.gain.setValueAtTime(menuMode ? 0.32 : 0.5, ac.currentTime);
     duck.gain.cancelScheduledValues(ac.currentTime); duck.gain.setValueAtTime(1, ac.currentTime);
+    echo.delayTime.setValueAtTime(60 / bpm * 0.75, ac.currentTime);
     if (!timer) timer = setInterval(pump, 25);
   }
   const sfx = (fn) => { if (!ac || muted) return; fn(ac.currentTime, master); };
